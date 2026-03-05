@@ -88,18 +88,29 @@ archtracker check --target src
 The interactive web viewer provides three visualization modes:
 
 ### Graph View (Force-Directed)
+
+![Graph View](docs/screenshots/graph-view-dark.png)
+
 - Drag, zoom, and click nodes to explore dependencies
 - Click a node to **pin** its highlight — hover other nodes to compare
 - Filter by directory with bottom pills
 - Adjust gravity, node size, font size, link opacity
 - **Impact mode**: click any file to see all transitively affected files
 
+![Impact Simulation](docs/screenshots/impact-simulation.png)
+
 ### Hierarchy View (DAG Layout)
+
+![Hierarchy View](docs/screenshots/hierarchy-view.png)
+
 - Layered top-down layout showing dependency depth
 - Click-to-pin highlighting with detail panel
 - Directory-based color coding with legend
 
 ### Diff View
+
+![Diff View](docs/screenshots/diff-view.png)
+
 - Color-coded visualization of architecture changes
 - Green = added, Red = removed, Yellow = modified, Blue = affected
 - Available when a snapshot exists for comparison
@@ -325,18 +336,29 @@ archtracker check --target src
 インタラクティブな Web ビューアは3つの可視化モードを提供します：
 
 ### グラフビュー（力学モデル）
+
+![グラフビュー](docs/screenshots/graph-view-dark.png)
+
 - ドラッグ、ズーム、クリックでノードの依存関係を探索
 - ノードをクリックでハイライトを**ピン固定** — 他のノードをホバーして比較
 - 下部のピルでディレクトリごとにフィルタリング
 - 重力、ノードサイズ、フォントサイズ、リンク透明度を調整可能
 - **影響モード**: ファイルをクリックして推移的に影響を受ける全ファイルを表示
 
+![影響シミュレーション](docs/screenshots/impact-simulation.png)
+
 ### 階層ビュー（DAGレイアウト）
+
+![階層ビュー](docs/screenshots/hierarchy-view.png)
+
 - 依存の深さを示すレイヤー型トップダウンレイアウト
 - クリックでピン固定 + 詳細パネル
 - ディレクトリベースの色分け + 凡例
 
 ### 差分ビュー
+
+![差分ビュー](docs/screenshots/diff-view.png)
+
 - アーキテクチャ変更の色分け可視化
 - 緑=追加、赤=削除、黄=変更、青=影響
 - スナップショットが存在する場合に利用可能
