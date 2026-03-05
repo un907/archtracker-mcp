@@ -6,6 +6,10 @@ import { saveSnapshot, loadSnapshot, hasArchtrackerDir, StorageError } from "./s
 import { computeDiff, formatDiffReport } from "./diff.js";
 import type { DependencyGraph, ArchSnapshot } from "../types/schema.js";
 import { SCHEMA_VERSION } from "../types/schema.js";
+import { setLocale } from "../i18n/index.js";
+
+// Use English locale for predictable test assertions
+setLocale("en");
 
 // Helper to create a minimal DependencyGraph
 function makeGraph(overrides: Partial<DependencyGraph> = {}): DependencyGraph {
@@ -175,7 +179,7 @@ describe("formatDiffReport", () => {
       modified: [],
       affectedDependents: [],
     });
-    expect(report).toContain("変更なし");
+    expect(report).toContain("No changes");
   });
 
   it("should format a complete report", () => {
@@ -192,12 +196,12 @@ describe("formatDiffReport", () => {
       ],
     });
 
-    expect(report).toContain("追加されたファイル");
+    expect(report).toContain("Added Files");
     expect(report).toContain("new-file.ts");
-    expect(report).toContain("削除されたファイル");
+    expect(report).toContain("Removed Files");
     expect(report).toContain("old-file.ts");
-    expect(report).toContain("依存関係が変更されたファイル");
-    expect(report).toContain("確認が必要なファイル");
+    expect(report).toContain("Modified Dependencies");
+    expect(report).toContain("Files Requiring Review");
     expect(report).toContain("consumer.ts");
   });
 });

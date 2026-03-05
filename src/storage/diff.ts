@@ -1,4 +1,5 @@
 import type { ArchDiff, DependencyGraph } from "../types/schema.js";
+import { t } from "../i18n/index.js";
 
 /**
  * Compute the diff between an old and new dependency graph.
@@ -54,8 +55,8 @@ export function computeDiff(
       seenAffected.add(key);
 
       const reason = removedSet.has(changedFile)
-        ? `依存先 "${changedFile}" が削除されました`
-        : `依存先 "${changedFile}" の依存関係が変更されました`;
+        ? t("diff.reasonRemoved", { file: changedFile })
+        : t("diff.reasonModified", { file: changedFile });
 
       affectedDependents.push({
         file: dependent,
@@ -78,7 +79,7 @@ export function computeDiff(
 
       affectedDependents.push({
         file: dependent,
-        reason: `新しい依存先 "${addedFile}" が追加されました`,
+        reason: t("diff.reasonAdded", { file: addedFile }),
         dependsOn: addedFile,
       });
     }
@@ -91,15 +92,15 @@ export function computeDiff(
 export function formatDiffReport(diff: ArchDiff): string {
   const lines: string[] = [];
 
-  lines.push("# アーキテクチャ変更レポート\n");
+  lines.push(t("diff.title"));
 
   if (diff.added.length === 0 && diff.removed.length === 0 && diff.modified.length === 0) {
-    lines.push("変更なし — スナップショットと現在のコードは一致しています。\n");
+    lines.push(t("diff.noChanges"));
     return lines.join("\n");
   }
 
   if (diff.added.length > 0) {
-    lines.push(`## 追加されたファイル (${diff.added.length}件)`);
+    lines.push(t("diff.added", { count: diff.added.length }));
     for (const f of diff.added) {
       lines.push(`  + ${f}`);
     }
@@ -107,7 +108,7 @@ export function formatDiffReport(diff: ArchDiff): string {
   }
 
   if (diff.removed.length > 0) {
-    lines.push(`## 削除されたファイル (${diff.removed.length}件)`);
+    lines.push(t("diff.removed", { count: diff.removed.length }));
     for (const f of diff.removed) {
       lines.push(`  - ${f}`);
     }
@@ -115,7 +116,7 @@ export function formatDiffReport(diff: ArchDiff): string {
   }
 
   if (diff.modified.length > 0) {
-    lines.push(`## 依存関係が変更されたファイル (${diff.modified.length}件)`);
+    lines.push(t("diff.modified", { count: diff.modified.length }));
     for (const f of diff.modified) {
       lines.push(`  ~ ${f}`);
     }
@@ -123,10 +124,10 @@ export function formatDiffReport(diff: ArchDiff): string {
   }
 
   if (diff.affectedDependents.length > 0) {
-    lines.push(`## ⚠ 確認が必要なファイル (${diff.affectedDependents.length}件)`);
+    lines.push(t("diff.affected", { count: diff.affectedDependents.length }));
     for (const a of diff.affectedDependents) {
       lines.push(`  ! ${a.file}`);
-      lines.push(`    理由: ${a.reason}`);
+      lines.push(`    ${a.reason}`);
     }
     lines.push("");
   }

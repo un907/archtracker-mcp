@@ -1,4 +1,5 @@
 import type { DependencyGraph, FileNode } from "../types/schema.js";
+import { t } from "../i18n/index.js";
 
 /** Search result for architecture queries */
 export interface SearchResult {
@@ -22,7 +23,7 @@ export function searchByPath(
   const regex = new RegExp(escaped, "i");
   return Object.values(graph.files)
     .filter((f) => regex.test(f.path))
-    .map((f) => toSearchResult(f, `パスが "${pattern}" にマッチ`));
+    .map((f) => toSearchResult(f, t("search.pathMatch", { pattern })));
 }
 
 /**
@@ -48,7 +49,7 @@ export function findAffectedFiles(
       results.push(
         toSearchResult(
           current,
-          `"${filePath}" の変更により影響を受ける可能性（経由: ${via}）`,
+          t("search.affected", { file: filePath, via }),
         ),
       );
     }
@@ -78,7 +79,7 @@ export function findCriticalFiles(
     .sort((a, b) => b.dependents.length - a.dependents.length)
     .slice(0, limit)
     .map((f) =>
-      toSearchResult(f, `${f.dependents.length}件のファイルが依存する重要コンポーネント`),
+      toSearchResult(f, t("search.critical", { count: f.dependents.length })),
     );
 }
 
@@ -88,7 +89,7 @@ export function findCriticalFiles(
 export function findOrphanFiles(graph: DependencyGraph): SearchResult[] {
   return Object.values(graph.files)
     .filter((f) => f.dependents.length === 0 && f.dependencies.length === 0)
-    .map((f) => toSearchResult(f, "孤立ファイル（依存なし・被依存なし）"));
+    .map((f) => toSearchResult(f, t("search.orphan")));
 }
 
 /** Find a node by exact or partial path match */

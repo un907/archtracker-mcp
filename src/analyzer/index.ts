@@ -7,3 +7,4 @@ export {
   findOrphanFiles,
 } from "./search.js";
 export type { SearchResult } from "./search.js";
+export { formatAnalysisReport } from "./report.js";

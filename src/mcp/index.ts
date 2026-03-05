@@ -8,6 +8,7 @@ import {
   findAffectedFiles,
   findCriticalFiles,
   findOrphanFiles,
+  formatAnalysisReport,
 } from "../analyzer/index.js";
 import {
   saveSnapshot,
@@ -18,6 +19,7 @@ import {
 } from "../storage/index.js";
 import type { ArchContext } from "../types/schema.js";
 import { validatePath, PathTraversalError } from "../utils/path-guard.js";
+import { t } from "../i18n/index.js";
 
 const server = new McpServer({
   name: "archtracker",
@@ -28,22 +30,22 @@ const server = new McpServer({
 
 server.tool(
   "generate_map",
-  "指定ディレクトリの依存関係グラフを解析し、ファイル間のimport/export構造をJSON形式で返す",
+  "Analyze dependency graph of a directory and return file import/export structure as JSON",
   {
     targetDir: z
       .string()
       .default("src")
-      .describe("解析対象のディレクトリパス（デフォルト: src）"),
+      .describe("Target directory path (default: src)"),
     exclude: z
       .array(z.string())
       .optional()
-      .describe("除外する正規表現パターンの配列（例: ['test', 'mock']）"),
+      .describe("Array of regex patterns to exclude (e.g. ['test', 'mock'])"),
     maxDepth: z
       .number()
       .int()
       .min(0)
       .optional()
-      .describe("解析の最大深度（0 = 無制限）"),
+      .describe("Max analysis depth (0 = unlimited)"),
   },
   async ({ targetDir, exclude, maxDepth }) => {
     try {
@@ -51,10 +53,10 @@ server.tool(
       const graph = await analyzeProject(targetDir, { exclude, maxDepth });
 
       const summary = [
-        `解析完了: ${graph.totalFiles}ファイル, ${graph.totalEdges}エッジ`,
+        t("mcp.analyzeComplete", { files: graph.totalFiles, edges: graph.totalEdges }),
         graph.circularDependencies.length > 0
-          ? `⚠ 循環参照: ${graph.circularDependencies.length}件検出`
-          : "循環参照: なし",
+          ? t("mcp.circularFound", { count: graph.circularDependencies.length })
+          : t("mcp.circularNone"),
       ].join("\n");
 
       return {
@@ -69,20 +71,73 @@ server.tool(
   },
 );
 
-// ─── Tool 2: save_architecture_snapshot ─────────────────────────
+// ─── Tool 2: analyze_existing_architecture ──────────────────────
 
 server.tool(
-  "save_architecture_snapshot",
-  "現在の依存関係グラフをスナップショットとして .archtracker/snapshot.json に保存する",
+  "analyze_existing_architecture",
+  "Comprehensive architecture analysis for existing projects. Shows critical components, circular dependencies, orphan files, coupling hotspots, and directory breakdown.",
   {
     targetDir: z
       .string()
       .default("src")
-      .describe("解析対象のディレクトリパス"),
+      .describe("Target directory path (default: src)"),
+    exclude: z
+      .array(z.string())
+      .optional()
+      .describe("Array of regex patterns to exclude"),
+    topN: z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .optional()
+      .describe("Number of top items to show in each section (default: 10)"),
+    saveSnapshot: z
+      .boolean()
+      .optional()
+      .describe("Also save a snapshot after analysis (default: false)"),
     projectRoot: z
       .string()
       .default(".")
-      .describe("プロジェクトルート（.archtrackerの配置先）"),
+      .describe("Project root (needed only when saveSnapshot is true)"),
+  },
+  async ({ targetDir, exclude, topN, saveSnapshot: doSave, projectRoot }) => {
+    try {
+      validatePath(targetDir);
+      const graph = await analyzeProject(targetDir, { exclude });
+      const report = formatAnalysisReport(graph, { topN: topN ?? 10 });
+
+      const content: { type: "text"; text: string }[] = [
+        { type: "text" as const, text: report },
+      ];
+
+      if (doSave) {
+        validatePath(projectRoot);
+        await saveSnapshot(projectRoot, graph);
+        content.push({ type: "text" as const, text: t("analyze.snapshotSaved") });
+      }
+
+      return { content };
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+// ─── Tool 3: save_architecture_snapshot ─────────────────────────
+
+server.tool(
+  "save_architecture_snapshot",
+  "Save the current dependency graph as a snapshot to .archtracker/snapshot.json",
+  {
+    targetDir: z
+      .string()
+      .default("src")
+      .describe("Target directory path"),
+    projectRoot: z
+      .string()
+      .default(".")
+      .describe("Project root (where .archtracker is placed)"),
   },
   async ({ targetDir, projectRoot }) => {
     try {
@@ -95,15 +150,15 @@ server.tool(
       const keyComponents = Object.values(graph.files)
         .sort((a, b) => b.dependents.length - a.dependents.length)
         .slice(0, 5)
-        .map((f) => `  ${f.path} (${f.dependents.length}件が依存)`);
+        .map((f) => `  ${t("cli.dependedBy", { path: f.path, count: f.dependents.length })}`);
 
       const report = [
-        "✅ スナップショットを保存しました",
-        `  タイムスタンプ: ${snapshot.timestamp}`,
-        `  ファイル数: ${graph.totalFiles}`,
-        `  エッジ数: ${graph.totalEdges}`,
+        t("mcp.snapshotSaved"),
+        t("cli.timestamp", { ts: snapshot.timestamp }),
+        t("cli.fileCount", { count: graph.totalFiles }),
+        t("cli.edgeCount", { count: graph.totalEdges }),
         "",
-        "主要コンポーネント（被依存数トップ5）:",
+        t("cli.keyComponents"),
         ...keyComponents,
       ].join("\n");
 
@@ -118,16 +173,16 @@ server.tool(
 
 server.tool(
   "check_architecture_diff",
-  "保存済みスナップショットと現在のコードの依存関係を比較し、修正が必要な可能性のあるファイルを警告する",
+  "Compare saved snapshot with current code dependencies and warn about files that may need updates",
   {
     targetDir: z
       .string()
       .default("src")
-      .describe("解析対象のディレクトリパス"),
+      .describe("Target directory path"),
     projectRoot: z
       .string()
       .default(".")
-      .describe("プロジェクトルート（.archtrackerの配置先）"),
+      .describe("Project root (where .archtracker is placed)"),
   },
   async ({ targetDir, projectRoot }) => {
     try {
@@ -144,9 +199,9 @@ server.tool(
             {
               type: "text" as const,
               text: [
-                "スナップショットが存在しなかったため、初期スナップショットを自動生成しました。",
-                `ファイル数: ${graph.totalFiles}, エッジ数: ${graph.totalEdges}`,
-                "次回の実行時から差分チェックが有効になります。",
+                t("mcp.autoInit"),
+                t("cli.fileCount", { count: graph.totalFiles }) + ", " + t("cli.edgeCount", { count: graph.totalEdges }),
+                t("mcp.nextCheckEnabled"),
               ].join("\n"),
             },
           ],
@@ -168,16 +223,16 @@ server.tool(
 
 server.tool(
   "get_current_context",
-  "AIセッション開始時に実行。最新の有効なファイルパス一覧とアーキテクチャサマリーを返し、古いパスの参照を防止する",
+  "Get current valid file paths and architecture summary for AI session initialization",
   {
     targetDir: z
       .string()
       .default("src")
-      .describe("解析対象のディレクトリパス"),
+      .describe("Target directory path"),
     projectRoot: z
       .string()
       .default(".")
-      .describe("プロジェクトルート"),
+      .describe("Project root"),
   },
   async ({ targetDir, projectRoot }) => {
     try {
@@ -205,16 +260,16 @@ server.tool(
       const validPaths = Object.keys(graph.files).sort();
 
       const summary = [
-        `プロジェクト: ${graph.rootDir}`,
-        `総ファイル数: ${graph.totalFiles}`,
-        `総エッジ数: ${graph.totalEdges}`,
-        `循環参照: ${graph.circularDependencies.length}件`,
-        `スナップショット: ${snapshot.timestamp}`,
+        t("cli.project", { path: graph.rootDir }),
+        t("cli.fileCount", { count: graph.totalFiles }),
+        t("cli.edgeCount", { count: graph.totalEdges }),
+        t("cli.circularCount", { count: graph.circularDependencies.length }),
+        t("cli.snapshot", { ts: snapshot.timestamp }),
         "",
-        "主要コンポーネント:",
+        t("cli.keyComponents"),
         ...keyComponents.map(
           (c) =>
-            `  ${c.path} (依存: ${c.dependencyCount}, 被依存: ${c.dependentCount})`,
+            `  ${t("cli.dependedBy", { path: c.path, count: c.dependentCount })}`,
         ),
       ].join("\n");
 
@@ -245,33 +300,33 @@ server.tool(
 
 server.tool(
   "search_architecture",
-  "アーキテクチャを検索する。ファイルパス検索、影響範囲分析、重要コンポーネント特定、孤立ファイル検出が可能",
+  "Search architecture: file path search, impact analysis, critical component detection, orphan file detection",
   {
     query: z
       .string()
       .optional()
-      .describe("検索クエリ（path/affected モードで必須、critical/orphans では不要）"),
+      .describe("Search query (required for path/affected modes, not needed for critical/orphans)"),
     mode: z
       .enum(["path", "affected", "critical", "orphans"])
       .default("path")
       .describe(
-        "検索モード: path=パスで検索, affected=変更影響範囲, critical=重要ファイル, orphans=孤立ファイル",
+        "Search mode: path=search by path, affected=change impact, critical=key files, orphans=isolated files",
       ),
     targetDir: z
       .string()
       .default("src")
-      .describe("解析対象のディレクトリパス"),
+      .describe("Target directory path"),
     projectRoot: z
       .string()
       .default(".")
-      .describe("プロジェクトルート"),
+      .describe("Project root"),
     limit: z
       .number()
       .int()
       .min(1)
       .max(50)
       .optional()
-      .describe("結果の最大件数（デフォルト: 10）"),
+      .describe("Max results (default: 10)"),
   },
   async ({ query, mode, targetDir, projectRoot, limit }) => {
     try {
@@ -291,7 +346,7 @@ server.tool(
       // Validate query is provided for modes that require it
       if ((mode === "path" || mode === "affected") && !query) {
         return {
-          content: [{ type: "text" as const, text: `"${mode}" モードでは query パラメータが必須です` }],
+          content: [{ type: "text" as const, text: t("mcp.queryRequired", { mode }) }],
           isError: true,
         };
       }
@@ -314,20 +369,20 @@ server.tool(
       if (results.length === 0) {
         return {
           content: [
-            { type: "text" as const, text: `検索結果なし: "${query}" (モード: ${mode})` },
+            { type: "text" as const, text: t("search.noResults", { query: query ?? "", mode }) },
           ],
         };
       }
 
       const lines = [
-        `検索結果: ${results.length}件 (モード: ${mode})`,
+        t("search.results", { count: results.length, mode }),
         "",
         ...results.slice(0, maxResults).map((r) => {
           return [
-            `📄 ${r.file}`,
-            `   理由: ${r.matchReason}`,
-            `   依存: ${r.dependencyCount}件 → [${r.dependencies.slice(0, 5).join(", ")}${r.dependencies.length > 5 ? "..." : ""}]`,
-            `   被依存: ${r.dependentCount}件 ← [${r.dependents.slice(0, 5).join(", ")}${r.dependents.length > 5 ? "..." : ""}]`,
+            `  ${r.file}`,
+            `   ${r.matchReason}`,
+            `   deps: ${r.dependencyCount} -> [${r.dependencies.slice(0, 5).join(", ")}${r.dependencies.length > 5 ? "..." : ""}]`,
+            `   dependents: ${r.dependentCount} <- [${r.dependents.slice(0, 5).join(", ")}${r.dependents.length > 5 ? "..." : ""}]`,
           ].join("\n");
         }),
       ];
@@ -345,15 +400,15 @@ function errorResponse(error: unknown) {
   let message: string;
 
   if (error instanceof PathTraversalError) {
-    message = `[セキュリティエラー] ${error.message}`;
+    message = t("error.pathTraversal", { message: error.message });
   } else if (error instanceof AnalyzerError) {
-    message = `[解析エラー] ${error.message}`;
+    message = t("error.analyzer", { message: error.message });
   } else if (error instanceof StorageError) {
-    message = `[ストレージエラー] ${error.message}`;
+    message = t("error.storage", { message: error.message });
   } else if (error instanceof Error) {
-    message = `[エラー] ${error.message}`;
+    message = t("error.generic", { message: error.message });
   } else {
-    message = `[エラー] 予期しないエラーが発生しました: ${String(error)}`;
+    message = t("error.unexpected", { message: String(error) });
   }
 
   return {

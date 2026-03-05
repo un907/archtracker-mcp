@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { t } from "../i18n/index.js";
 
 /**
  * Validate that a path resolves within the allowed boundary (CWD by default).
@@ -13,7 +14,7 @@ export function validatePath(
 
   if (!resolved.startsWith(root)) {
     throw new PathTraversalError(
-      `パスがプロジェクトルートの外部を指しています: "${inputPath}" → "${resolved}" (許可範囲: "${root}")`,
+      t("pathGuard.traversal", { input: inputPath, resolved, boundary: root }),
     );
   }
   return resolved;

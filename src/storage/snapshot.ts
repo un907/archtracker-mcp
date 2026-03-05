@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { ArchSnapshot } from "../types/schema.js";
 import { SCHEMA_VERSION } from "../types/schema.js";
 import type { DependencyGraph } from "../types/schema.js";
+import { t } from "../i18n/index.js";
 
 const ARCHTRACKER_DIR = ".archtracker";
 const SNAPSHOT_FILE = "snapshot.json";
@@ -82,7 +83,7 @@ export async function loadSnapshot(
       return null;
     }
     throw new StorageError(
-      `snapshot.json の読み取りに失敗しました: ${filePath}`,
+      t("storage.readFailed", { path: filePath }),
       { cause: error },
     );
   }
@@ -92,7 +93,7 @@ export async function loadSnapshot(
     parsed = JSON.parse(raw);
   } catch {
     throw new StorageError(
-      `snapshot.json のパースに失敗しました。ファイルが破損している可能性があります: ${filePath}`,
+      t("storage.parseFailed", { path: filePath }),
     );
   }
 
@@ -104,7 +105,7 @@ export async function loadSnapshot(
       .slice(0, 5)
       .join("\n");
     throw new StorageError(
-      `snapshot.json のスキーマが不正です。archtracker init で再生成してください:\n${issues}`,
+      t("storage.invalidSchema", { issues }),
     );
   }
 
