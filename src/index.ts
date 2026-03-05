@@ -15,5 +15,5 @@ export type {
 export { SCHEMA_VERSION } from "./types/schema.js";
 export { analyzeProject, AnalyzerError } from "./analyzer/index.js";
 export type { AnalyzeOptions } from "./analyzer/index.js";
-export { saveSnapshot, loadSnapshot } from "./storage/index.js";
-export { computeDiff } from "./storage/index.js";
+export { saveSnapshot, loadSnapshot, hasArchtrackerDir, StorageError } from "./storage/index.js";
+export { computeDiff, formatDiffReport } from "./storage/index.js";

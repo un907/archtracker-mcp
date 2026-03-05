@@ -1,2 +1,2 @@
-export { saveSnapshot, loadSnapshot } from "./snapshot.js";
-export { computeDiff } from "./diff.js";
+export { saveSnapshot, loadSnapshot, hasArchtrackerDir, StorageError } from "./snapshot.js";
+export { computeDiff, formatDiffReport } from "./diff.js";
