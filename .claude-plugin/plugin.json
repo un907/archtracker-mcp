@@ -1,0 +1,8 @@
+{
+  "name": "archtracker",
+  "description": "Architecture & Dependency Tracker — AI駆動開発のアーキテクチャ変更漏れを防止するMCPサーバー + Skills",
+  "version": "0.1.0",
+  "author": {
+    "name": "ArchTracker Contributors"
+  }
+}

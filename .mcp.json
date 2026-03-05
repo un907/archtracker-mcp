@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "archtracker": {
+      "command": "node",
+      "args": ["dist/mcp/index.js"]
+    }
+  }
+}
