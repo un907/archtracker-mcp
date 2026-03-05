@@ -5,3 +5,6 @@ dist/
 coverage/
 .DS_Store
 *.log
+.e2e-test-tmp/
+.env
+.env.*

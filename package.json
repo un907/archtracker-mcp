@@ -1,10 +1,19 @@
 {
   "name": "archtracker-mcp",
   "version": "0.1.0",
-  "description": "Architecture & Dependency Tracker — MCP server + CLI + Skills for AI-driven development",
+  "description": "Architecture & Dependency Tracker — MCP server + CLI + interactive web viewer for AI-driven development",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./mcp": {
+      "import": "./dist/mcp/index.js"
+    }
+  },
   "bin": {
     "archtracker": "dist/cli/index.js"
   },
@@ -17,20 +26,40 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "architecture",
-    "dependency",
-    "tracker",
+    "dependency-graph",
+    "dependency-tracker",
     "claude-code",
-    "ai-development"
+    "ai-development",
+    "static-analysis",
+    "visualization",
+    "typescript",
+    "cli",
+    "devtools",
+    "architecture-drift",
+    "impact-analysis",
+    "code-quality"
   ],
-  "author": "",
+  "author": "un907",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/un907/archtracker-mcp.git"
+  },
+  "homepage": "https://github.com/un907/archtracker-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/un907/archtracker-mcp/issues"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/un907"
+  },
   "engines": {
     "node": ">=18.0.0"
   },
