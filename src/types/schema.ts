@@ -20,11 +20,17 @@ export interface FileNode {
   dependents: string[];
 }
 
+/** A detected circular dependency */
+export interface CircularDependency {
+  cycle: string[];
+}
+
 /** The full dependency graph */
 export interface DependencyGraph {
   rootDir: string;
   files: Record<string, FileNode>;
   edges: DependencyEdge[];
+  circularDependencies: CircularDependency[];
   totalFiles: number;
   totalEdges: number;
 }
