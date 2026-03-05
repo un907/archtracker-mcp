@@ -2,46 +2,26 @@
 
 > 最終更新: 2026-03-05
 
-## Phase 2: Analyzer 実装
+## 残タスク
 
-| # | タスク | 状態 | 担当 | 備考 |
-|---|--------|------|------|------|
-| 2.1 | dependency-cruiser API 調査・統合 | ⬚ | Claude | cruise() 関数の直接呼び出し |
-| 2.2 | 解析結果を DependencyGraph 型に変換 | ⬚ | Claude | 軽量フォーマットに整形 |
-| 2.3 | 除外パターン (node_modules, dist 等) | ⬚ | Claude | オプションで設定可能に |
-| 2.4 | maxDepth オプション実装 | ⬚ | Claude | クソデカ Repo 対策 |
-| 2.5 | 循環参照の検出と警告 | ⬚ | Claude | クラッシュさせずレポート |
-| 2.6 | ユニットテスト (Vitest) | ⬚ | Claude | テストフィクスチャ作成 |
+### Phase 6: テスト・品質保証
 
-## Phase 3: Storage 実装
+| # | タスク | 状態 | 備考 |
+|---|--------|------|------|
+| 6.1 | MCP サーバー E2E テスト | ⬚ | stdio 経由でのツール呼び出し検証 |
+| 6.2 | CLI E2E テスト | ⬚ | init → check → context フロー |
+| 6.3 | エッジケース: 巨大プロジェクト | ⬚ | パフォーマンス・メモリ検証 |
+| 6.4 | エッジケース: tsconfig なし | ⬚ | エラーメッセージ検証 |
 
-| # | タスク | 状態 | 担当 | 備考 |
-|---|--------|------|------|------|
-| 3.1 | .archtracker/ ディレクトリ管理 | ⬚ | Claude | init 時に作成 |
-| 3.2 | snapshot.json 読み書き | ⬚ | Claude | バージョン付き |
-| 3.3 | diff 計算ロジック | ⬚ | Claude | 追加/削除/変更 + 影響範囲 |
-| 3.4 | 影響レポート生成（日本語） | ⬚ | Claude | AI が読みやすい形式 |
-| 3.5 | ユニットテスト (Vitest) | ⬚ | Claude | |
+### Phase 7: OSS リリース準備
 
-## Phase 4: MCP サーバー実装
-
-| # | タスク | 状態 | 担当 | 備考 |
-|---|--------|------|------|------|
-| 4.1 | McpServer セットアップ | ⬚ | Claude | stdio トランスポート |
-| 4.2 | generate_map ツール | ⬚ | Claude | |
-| 4.3 | save_architecture_snapshot ツール | ⬚ | Claude | |
-| 4.4 | check_architecture_diff ツール | ⬚ | Claude | |
-| 4.5 | get_current_context ツール | ⬚ | Claude | snapshot 不在時は自動生成 |
-| 4.6 | エラーハンドリング統合 | ⬚ | Claude | |
-
-## Phase 5: CLI + Skills 統合
-
-| # | タスク | 状態 | 担当 | 備考 |
-|---|--------|------|------|------|
-| 5.1 | archtracker init コマンド | ⬚ | Claude | |
-| 5.2 | archtracker check コマンド | ⬚ | Claude | CI/pre-commit 対応 |
-| 5.3 | Skills 最終調整 | ⬚ | Claude | MCP ツール名バインド |
-| 5.4 | E2E テスト | ⬚ | Claude | |
+| # | タスク | 状態 | 備考 |
+|---|--------|------|------|
+| 7.1 | README.md 作成 | ⬚ | インストール・使い方・設定例 |
+| 7.2 | LICENSE ファイル | ⬚ | MIT |
+| 7.3 | npm パッケージ名確定 | ⬚ | 仮: archtracker-mcp |
+| 7.4 | GitHub リポジトリ作成 | ⬚ | |
+| 7.5 | npm publish 設定 | ⬚ | prepublishOnly, files, bin |
 
 ## 完了済み
 
@@ -55,3 +35,24 @@
 | 1.6 | Skills スケルトン (3つ) | 2026-03-05 |
 | 1.7 | Vitest 設定 | 2026-03-05 |
 | 1.8 | 初期コミット | 2026-03-05 |
+| 2.1 | dependency-cruiser API 調査・統合 | 2026-03-05 |
+| 2.2 | 解析結果を DependencyGraph 型に変換 | 2026-03-05 |
+| 2.3 | 除外パターン (node_modules, dist 等) | 2026-03-05 |
+| 2.4 | maxDepth オプション実装 | 2026-03-05 |
+| 2.5 | 循環参照の検出と警告 | 2026-03-05 |
+| 2.6 | ユニットテスト (Vitest) — 6テスト | 2026-03-05 |
+| 3.1 | .archtracker/ ディレクトリ管理 | 2026-03-05 |
+| 3.2 | snapshot.json 読み書き (バージョン付き) | 2026-03-05 |
+| 3.3 | diff 計算ロジック | 2026-03-05 |
+| 3.4 | 影響レポート生成（日本語） | 2026-03-05 |
+| 3.5 | ユニットテスト (Vitest) — 10テスト | 2026-03-05 |
+| 4.1 | McpServer セットアップ (stdio) | 2026-03-05 |
+| 4.2 | generate_map ツール | 2026-03-05 |
+| 4.3 | save_architecture_snapshot ツール | 2026-03-05 |
+| 4.4 | check_architecture_diff ツール (自動init) | 2026-03-05 |
+| 4.5 | get_current_context ツール (自動生成) | 2026-03-05 |
+| 4.6 | エラーハンドリング統合 | 2026-03-05 |
+| 5.1 | archtracker init コマンド | 2026-03-05 |
+| 5.2 | archtracker check コマンド (--ci 対応) | 2026-03-05 |
+| 5.3 | archtracker context コマンド (--json 対応) | 2026-03-05 |
+| 5.4 | Skills 最終調整 + プラグイン構成 | 2026-03-05 |

@@ -8,10 +8,10 @@ AI駆動開発における「アーキテクチャ変更時の修正漏れ」と
 | Phase | 内容 | 状態 | 成果物 |
 |-------|------|------|--------|
 | 1 | プロジェクトセットアップ | ✅ 完了 | 骨格、ビルドパイプライン、スキーマ定義、Skills スケルトン |
-| 2 | Analyzer（依存関係解析器）実装 | 🔄 進行中 | `src/analyzer/` — dependency-cruiser 連携 |
-| 3 | Storage（記憶層）実装 | ⬚ 未着手 | `src/storage/` — snapshot 永続化 + diff 計算 |
-| 4 | MCP サーバー実装 | ⬚ 未着手 | `src/mcp/` — 4ツール登録、stdio トランスポート |
-| 5 | CLI + Skills 統合 | ⬚ 未着手 | `src/cli/` + `skills/` — 自動化ラッパー |
+| 2 | Analyzer（依存関係解析器）実装 | ✅ 完了 | `src/analyzer/` — dependency-cruiser 連携、6テスト |
+| 3 | Storage（記憶層）実装 | ✅ 完了 | `src/storage/` — snapshot 永続化 + diff 計算、10テスト |
+| 4 | MCP サーバー実装 | ✅ 完了 | `src/mcp/` — 4ツール登録、stdio トランスポート |
+| 5 | CLI + Skills 統合 | ✅ 完了 | `src/cli/` + `skills/` + プラグイン構成 |
 | 6 | テスト・品質保証 | ⬚ 未着手 | E2E テスト、エラーハンドリング強化 |
 | 7 | OSS リリース準備 | ⬚ 未着手 | README、LICENSE、npm publish 設定 |
 
@@ -32,10 +32,10 @@ AI駆動開発における「アーキテクチャ変更時の修正漏れ」と
 
 ## 懸念事項と対策
 
-| 懸念 | 対策 |
-|------|------|
-| ESM/CJS 地獄 | tsup で単一 ESM 出力に統一 |
-| クソデカ Repo で OOM | maxDepth/exclude オプション + ストリーミング処理 |
-| スキーマ破壊的変更 | version フィールドでマイグレーション対応 |
-| dependency-cruiser の tsconfig 不在 | エラーハンドリングで明確なメッセージ |
-| 循環参照 | 検出して警告（クラッシュさせない） |
+| 懸念 | 対策 | 実装状態 |
+|------|------|----------|
+| ESM/CJS 地獄 | tsup で単一 ESM 出力に統一 | ✅ |
+| クソデカ Repo で OOM | maxDepth/exclude オプション | ✅ |
+| スキーマ破壊的変更 | version フィールドでマイグレーション対応 | ✅ |
+| dependency-cruiser の tsconfig 不在 | エラーハンドリングで明確なメッセージ | ✅ |
+| 循環参照 | 検出して警告（クラッシュさせない） | ✅ |

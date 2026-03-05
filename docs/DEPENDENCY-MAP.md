@@ -1,6 +1,6 @@
 # ArchTracker MCP — 内部依存関係マップ
 
-> 最終更新: 2026-03-05 (Phase 1 完了時点)
+> 最終更新: 2026-03-05 (Phase 5 完了時点)
 > ArchTracker 自身の内部依存関係を記録する（自己参照的ドッグフーディング）
 
 ## モジュール間依存関係
@@ -27,15 +27,17 @@ src/storage/snapshot.ts
 src/storage/diff.ts
   └──► src/types/schema.ts        (ArchDiff, DependencyGraph 型)
 
-src/mcp/index.ts                  [Phase 4 で実装]
-  ├──► src/analyzer/index.ts
-  ├──► src/storage/index.ts
-  └──► src/types/schema.ts
+src/mcp/index.ts                  ✅ 実装済み
+  ├──► @modelcontextprotocol/sdk   (McpServer, StdioServerTransport)
+  ├──► zod                         (ツール引数バリデーション)
+  ├──► src/analyzer/index.ts       (analyzeProject, AnalyzerError)
+  ├──► src/storage/index.ts        (saveSnapshot, loadSnapshot, computeDiff, formatDiffReport, StorageError)
+  └──► src/types/schema.ts         (ArchContext 型)
 
-src/cli/index.ts                  [Phase 5 で実装]
-  ├──► src/analyzer/index.ts
-  ├──► src/storage/index.ts
-  └──► src/types/schema.ts
+src/cli/index.ts                  ✅ 実装済み
+  ├──► commander                   (Command)
+  ├──► src/analyzer/index.ts       (analyzeProject, AnalyzerError)
+  └──► src/storage/index.ts        (saveSnapshot, loadSnapshot, computeDiff, formatDiffReport, StorageError)
 ```
 
 ## 依存方向ルール
