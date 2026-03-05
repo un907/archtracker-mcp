@@ -1,7 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { analyzeProject, AnalyzerError } from "../analyzer/index.js";
+import {
+  analyzeProject,
+  AnalyzerError,
+  searchByPath,
+  findAffectedFiles,
+  findCriticalFiles,
+  findOrphanFiles,
+} from "../analyzer/index.js";
 import {
   saveSnapshot,
   loadSnapshot,
@@ -222,6 +229,93 @@ server.tool(
           },
         ],
       };
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
+);
+
+// ─── Tool 5: search_architecture ────────────────────────────────
+
+server.tool(
+  "search_architecture",
+  "アーキテクチャを検索する。ファイルパス検索、影響範囲分析、重要コンポーネント特定、孤立ファイル検出が可能",
+  {
+    query: z
+      .string()
+      .describe("検索クエリ（ファイルパスのパターン）"),
+    mode: z
+      .enum(["path", "affected", "critical", "orphans"])
+      .default("path")
+      .describe(
+        "検索モード: path=パスで検索, affected=変更影響範囲, critical=重要ファイル, orphans=孤立ファイル",
+      ),
+    targetDir: z
+      .string()
+      .default("src")
+      .describe("解析対象のディレクトリパス"),
+    projectRoot: z
+      .string()
+      .default(".")
+      .describe("プロジェクトルート"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .optional()
+      .describe("結果の最大件数（デフォルト: 10）"),
+  },
+  async ({ query, mode, targetDir, projectRoot, limit }) => {
+    try {
+      // Use existing snapshot or generate fresh
+      let snapshot = await loadSnapshot(projectRoot);
+      if (!snapshot) {
+        const graph = await analyzeProject(targetDir);
+        snapshot = await saveSnapshot(projectRoot, graph);
+      }
+
+      const graph = snapshot.graph;
+      const maxResults = limit ?? 10;
+      let results;
+
+      switch (mode) {
+        case "path":
+          results = searchByPath(graph, query);
+          break;
+        case "affected":
+          results = findAffectedFiles(graph, query);
+          break;
+        case "critical":
+          results = findCriticalFiles(graph, maxResults);
+          break;
+        case "orphans":
+          results = findOrphanFiles(graph);
+          break;
+      }
+
+      if (results.length === 0) {
+        return {
+          content: [
+            { type: "text" as const, text: `検索結果なし: "${query}" (モード: ${mode})` },
+          ],
+        };
+      }
+
+      const lines = [
+        `検索結果: ${results.length}件 (モード: ${mode})`,
+        "",
+        ...results.slice(0, maxResults).map((r) => {
+          return [
+            `📄 ${r.file}`,
+            `   理由: ${r.matchReason}`,
+            `   依存: ${r.dependencyCount}件 → [${r.dependencies.slice(0, 5).join(", ")}${r.dependencies.length > 5 ? "..." : ""}]`,
+            `   被依存: ${r.dependentCount}件 ← [${r.dependents.slice(0, 5).join(", ")}${r.dependents.length > 5 ? "..." : ""}]`,
+          ].join("\n");
+        }),
+      ];
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     } catch (error) {
       return errorResponse(error);
     }

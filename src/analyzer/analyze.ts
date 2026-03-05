@@ -101,8 +101,11 @@ function buildGraph(
   const circularSet = new Set<string>();
   const circularDependencies: CircularDependency[] = [];
 
-  // First pass: register all files
+  // First pass: register only local project files
+  // Skip core modules (fs, path), external packages (npm), and unresolvable
   for (const mod of cruiseResult.modules) {
+    if (isExternalModule(mod)) continue;
+
     files[mod.source] = {
       path: mod.source,
       exists: !mod.couldNotResolve,
@@ -116,6 +119,8 @@ function buildGraph(
     for (const dep of mod.dependencies) {
       // Skip unresolvable and core modules
       if (dep.couldNotResolve || dep.coreModule) continue;
+      // Skip edges to/from external packages
+      if (!files[mod.source] || isExternalDep(dep)) continue;
 
       const edgeType = dep.typeOnly
         ? ("type-only" as const)
@@ -157,6 +162,42 @@ function buildGraph(
     totalFiles: Object.keys(files).length,
     totalEdges: edges.length,
   };
+}
+
+/**
+ * Check if a module is external (not a local project file).
+ * Uses both dependency-cruiser metadata and path heuristics.
+ */
+function isExternalModule(mod: { source: string; coreModule?: boolean; dependencyTypes?: string[] }): boolean {
+  if (mod.coreModule) return true;
+  const depTypes = mod.dependencyTypes ?? [];
+  if (depTypes.some((t) => t.startsWith("npm") || t === "core")) return true;
+  // Path-based fallback: scoped packages (@org/pkg) or bare specifiers without extension
+  return isExternalPath(mod.source);
+}
+
+/**
+ * Check if a dependency edge points to an external target.
+ */
+function isExternalDep(dep: { resolved: string; coreModule: boolean; dependencyTypes: string[] }): boolean {
+  if (dep.coreModule) return true;
+  if (dep.dependencyTypes.some((t) => t.startsWith("npm") || t === "core")) return true;
+  return isExternalPath(dep.resolved);
+}
+
+/**
+ * Path heuristic: detect external modules by path pattern.
+ * Local project files start with ./ or are relative paths with file extensions.
+ * External: @scope/pkg, bare-name/sub, single-word (fs, path, os).
+ */
+function isExternalPath(source: string): boolean {
+  // Scoped packages: @modelcontextprotocol/sdk/...
+  if (source.startsWith("@")) return true;
+  // Core node modules: single word without slash (fs, path, os, etc.)
+  if (!source.includes("/") && !source.includes("\\") && !source.includes(".")) return true;
+  // node: protocol
+  if (source.startsWith("node:")) return true;
+  return false;
 }
 
 /** Custom error class for analyzer failures */
