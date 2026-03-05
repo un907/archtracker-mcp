@@ -36,6 +36,7 @@ export function computeDiff(
   }
 
   // Find all files that depend on changed/removed files
+  const removedSet = new Set(removed);
   const changedFiles = new Set([...removed, ...modified]);
   const affectedDependents: ArchDiff["affectedDependents"] = [];
   const seenAffected = new Set<string>();
@@ -43,7 +44,7 @@ export function computeDiff(
   for (const changedFile of changedFiles) {
     // Look up dependents in the NEW graph (for modified files)
     // and in the OLD graph (for removed files)
-    const graph = removed.includes(changedFile) ? oldGraph : newGraph;
+    const graph = removedSet.has(changedFile) ? oldGraph : newGraph;
     const node = graph.files[changedFile];
     if (!node) continue;
 
@@ -52,7 +53,7 @@ export function computeDiff(
       if (seenAffected.has(key)) continue;
       seenAffected.add(key);
 
-      const reason = removed.includes(changedFile)
+      const reason = removedSet.has(changedFile)
         ? `依存先 "${changedFile}" が削除されました`
         : `依存先 "${changedFile}" の依存関係が変更されました`;
 

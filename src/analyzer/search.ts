@@ -12,13 +12,14 @@ export interface SearchResult {
 
 /**
  * Search the dependency graph by file path pattern.
- * Returns matching files with their dependency information.
+ * Pattern is treated as a literal substring (escaped to prevent ReDoS).
  */
 export function searchByPath(
   graph: DependencyGraph,
   pattern: string,
 ): SearchResult[] {
-  const regex = new RegExp(pattern, "i");
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(escaped, "i");
   return Object.values(graph.files)
     .filter((f) => regex.test(f.path))
     .map((f) => toSearchResult(f, `パスが "${pattern}" にマッチ`));

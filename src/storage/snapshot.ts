@@ -1,11 +1,40 @@
 import { mkdir, writeFile, readFile, access } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import type { ArchSnapshot } from "../types/schema.js";
 import { SCHEMA_VERSION } from "../types/schema.js";
 import type { DependencyGraph } from "../types/schema.js";
 
 const ARCHTRACKER_DIR = ".archtracker";
 const SNAPSHOT_FILE = "snapshot.json";
+
+/** Zod schema for runtime validation of loaded snapshots */
+const FileNodeSchema = z.object({
+  path: z.string(),
+  exists: z.boolean(),
+  dependencies: z.array(z.string()),
+  dependents: z.array(z.string()),
+});
+
+const DependencyGraphSchema = z.object({
+  rootDir: z.string(),
+  files: z.record(z.string(), FileNodeSchema),
+  edges: z.array(z.object({
+    source: z.string(),
+    target: z.string(),
+    type: z.enum(["static", "dynamic", "type-only"]),
+  })),
+  circularDependencies: z.array(z.object({ cycle: z.array(z.string()) })),
+  totalFiles: z.number(),
+  totalEdges: z.number(),
+});
+
+const SnapshotSchema = z.object({
+  version: z.literal(SCHEMA_VERSION),
+  timestamp: z.string(),
+  rootDir: z.string(),
+  graph: DependencyGraphSchema,
+});
 
 /**
  * Save a dependency graph as a versioned snapshot.
@@ -37,22 +66,28 @@ export async function saveSnapshot(
  * Load the most recent snapshot from .archtracker/snapshot.json.
  *
  * Returns null if no snapshot exists.
- * Validates schema version for backward compatibility.
+ * Validates schema structure with Zod for data integrity.
  */
 export async function loadSnapshot(
   projectRoot: string,
 ): Promise<ArchSnapshot | null> {
   const filePath = join(projectRoot, ARCHTRACKER_DIR, SNAPSHOT_FILE);
 
+  // Read file directly — no TOCTOU race with access() check
+  let raw: string;
   try {
-    await access(filePath);
-  } catch {
-    return null;
+    raw = await readFile(filePath, "utf-8");
+  } catch (error: unknown) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return null;
+    }
+    throw new StorageError(
+      `snapshot.json の読み取りに失敗しました: ${filePath}`,
+      { cause: error },
+    );
   }
 
-  const raw = await readFile(filePath, "utf-8");
   let parsed: unknown;
-
   try {
     parsed = JSON.parse(raw);
   } catch {
@@ -61,21 +96,19 @@ export async function loadSnapshot(
     );
   }
 
-  const snapshot = parsed as ArchSnapshot;
-
-  if (!snapshot.version) {
+  // Validate structure with Zod
+  const result = SnapshotSchema.safeParse(parsed);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((i) => `  ${i.path.join(".")}: ${i.message}`)
+      .slice(0, 5)
+      .join("\n");
     throw new StorageError(
-      `snapshot.json にバージョン情報がありません。再生成してください: archtracker init`,
+      `snapshot.json のスキーマが不正です。archtracker init で再生成してください:\n${issues}`,
     );
   }
 
-  if (snapshot.version !== SCHEMA_VERSION) {
-    throw new StorageError(
-      `snapshot.json のバージョン (${snapshot.version}) が現在のスキーマ (${SCHEMA_VERSION}) と互換性がありません。archtracker init で再生成してください。`,
-    );
-  }
-
-  return snapshot;
+  return result.data as ArchSnapshot;
 }
 
 /** Check if .archtracker directory exists */
@@ -92,8 +125,12 @@ export async function hasArchtrackerDir(
 
 /** Custom error class for storage failures */
 export class StorageError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "StorageError";
   }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }

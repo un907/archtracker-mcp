@@ -17,6 +17,7 @@ import {
   StorageError,
 } from "../storage/index.js";
 import type { ArchContext } from "../types/schema.js";
+import { validatePath, PathTraversalError } from "../utils/path-guard.js";
 
 const server = new McpServer({
   name: "archtracker",
@@ -46,6 +47,7 @@ server.tool(
   },
   async ({ targetDir, exclude, maxDepth }) => {
     try {
+      validatePath(targetDir);
       const graph = await analyzeProject(targetDir, { exclude, maxDepth });
 
       const summary = [
@@ -84,6 +86,8 @@ server.tool(
   },
   async ({ targetDir, projectRoot }) => {
     try {
+      validatePath(targetDir);
+      validatePath(projectRoot);
       const graph = await analyzeProject(targetDir);
       const snapshot = await saveSnapshot(projectRoot, graph);
 
@@ -127,6 +131,8 @@ server.tool(
   },
   async ({ targetDir, projectRoot }) => {
     try {
+      validatePath(targetDir);
+      validatePath(projectRoot);
       const existingSnapshot = await loadSnapshot(projectRoot);
 
       if (!existingSnapshot) {
@@ -243,7 +249,8 @@ server.tool(
   {
     query: z
       .string()
-      .describe("検索クエリ（ファイルパスのパターン）"),
+      .optional()
+      .describe("検索クエリ（path/affected モードで必須、critical/orphans では不要）"),
     mode: z
       .enum(["path", "affected", "critical", "orphans"])
       .default("path")
@@ -268,6 +275,8 @@ server.tool(
   },
   async ({ query, mode, targetDir, projectRoot, limit }) => {
     try {
+      validatePath(targetDir);
+      validatePath(projectRoot);
       // Use existing snapshot or generate fresh
       let snapshot = await loadSnapshot(projectRoot);
       if (!snapshot) {
@@ -279,12 +288,20 @@ server.tool(
       const maxResults = limit ?? 10;
       let results;
 
+      // Validate query is provided for modes that require it
+      if ((mode === "path" || mode === "affected") && !query) {
+        return {
+          content: [{ type: "text" as const, text: `"${mode}" モードでは query パラメータが必須です` }],
+          isError: true,
+        };
+      }
+
       switch (mode) {
         case "path":
-          results = searchByPath(graph, query);
+          results = searchByPath(graph, query!);
           break;
         case "affected":
-          results = findAffectedFiles(graph, query);
+          results = findAffectedFiles(graph, query!);
           break;
         case "critical":
           results = findCriticalFiles(graph, maxResults);
@@ -327,7 +344,9 @@ server.tool(
 function errorResponse(error: unknown) {
   let message: string;
 
-  if (error instanceof AnalyzerError) {
+  if (error instanceof PathTraversalError) {
+    message = `[セキュリティエラー] ${error.message}`;
+  } else if (error instanceof AnalyzerError) {
     message = `[解析エラー] ${error.message}`;
   } else if (error instanceof StorageError) {
     message = `[ストレージエラー] ${error.message}`;

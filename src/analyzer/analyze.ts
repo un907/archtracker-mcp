@@ -203,10 +203,7 @@ function isExternalPath(source: string): boolean {
 /** Custom error class for analyzer failures */
 export class AnalyzerError extends Error {
   constructor(message: string, options?: ErrorOptions) {
-    super(message);
+    super(message, options);
     this.name = "AnalyzerError";
-    if (options?.cause) {
-      this.cause = options.cause;
-    }
   }
 }
