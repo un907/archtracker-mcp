@@ -12,7 +12,7 @@ AI駆動開発における「アーキテクチャ変更時の修正漏れ」と
 | 3 | Storage（記憶層）実装 | ✅ 完了 | `src/storage/` — snapshot 永続化 + diff 計算、10テスト |
 | 4 | MCP サーバー実装 | ✅ 完了 | `src/mcp/` — 4ツール登録、stdio トランスポート |
 | 5 | CLI + Skills 統合 | ✅ 完了 | `src/cli/` + `skills/` + プラグイン構成 |
-| 6 | テスト・品質保証 | ⬚ 未着手 | E2E テスト、エラーハンドリング強化 |
+| 6 | ドッグフーディング + 検索機能 | ✅ 完了 | 外部モジュール除外、search_architecture ツール、/arch-search Skill |
 | 7 | OSS リリース準備 | ⬚ 未着手 | README、LICENSE、npm publish 設定 |
 
 ## 技術選定
