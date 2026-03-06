@@ -13,6 +13,7 @@ import {
 import { startViewer } from "../web/server.js";
 import { t, setLocale } from "../i18n/index.js";
 import type { Locale } from "../i18n/index.js";
+import { VERSION } from "../utils/version.js";
 
 const program = new Command();
 
@@ -21,7 +22,7 @@ program
   .description(
     "Architecture & Dependency Tracker — Prevent missed architecture changes in AI-driven development",
   )
-  .version("0.3.1")
+  .version(VERSION)
   .option("--lang <locale>", "Language (en/ja, auto-detected from LANG env)")
   .hook("preAction", (thisCommand) => {
     const lang = thisCommand.opts().lang;

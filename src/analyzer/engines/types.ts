@@ -1,19 +1,23 @@
 import type { DependencyGraph } from "../../types/schema.js";
 
-export type LanguageId =
-  | "javascript"
-  | "python"
-  | "rust"
-  | "go"
-  | "java"
-  | "c-cpp"
-  | "c-sharp"
-  | "ruby"
-  | "php"
-  | "swift"
-  | "kotlin"
-  | "dart"
-  | "scala";
+/** Single source of truth for supported language IDs */
+export const LANGUAGE_IDS = [
+  "javascript",
+  "python",
+  "rust",
+  "go",
+  "java",
+  "c-cpp",
+  "c-sharp",
+  "ruby",
+  "php",
+  "swift",
+  "kotlin",
+  "dart",
+  "scala",
+] as const;
+
+export type LanguageId = (typeof LANGUAGE_IDS)[number];
 
 export interface AnalyzerEngine {
   analyze(

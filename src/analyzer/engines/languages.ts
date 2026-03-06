@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
+import { LANGUAGE_IDS } from "./types.js";
 import type { LanguageConfig, LanguageId } from "./types.js";
 
 // ─── Python ──────────────────────────────────────────
@@ -636,5 +637,5 @@ export function getLanguageConfig(id: LanguageId): LanguageConfig | null {
 }
 
 export function getAllLanguageIds(): LanguageId[] {
-  return Object.keys(LANGUAGE_CONFIGS) as LanguageId[];
+  return [...LANGUAGE_IDS];
 }

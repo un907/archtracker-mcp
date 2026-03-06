@@ -20,17 +20,30 @@ import {
 import type { ArchContext } from "../types/schema.js";
 import { validatePath, PathTraversalError } from "../utils/path-guard.js";
 import { t } from "../i18n/index.js";
+import { VERSION } from "../utils/version.js";
+import { LANGUAGE_IDS } from "../analyzer/engines/types.js";
 
 const server = new McpServer({
   name: "archtracker",
-  version: "0.3.1",
+  version: VERSION,
 });
+
+/** Zod enum for language parameter — derived from LANGUAGE_IDS */
+const languageEnum = z.enum(LANGUAGE_IDS);
+
+/** Human-readable language list for tool descriptions */
+const LANG_DISPLAY: Record<string, string> = {
+  javascript: "JS/TS", "c-cpp": "C/C++", "c-sharp": "C#",
+};
+const languageList = LANGUAGE_IDS
+  .map((id) => LANG_DISPLAY[id] ?? id.charAt(0).toUpperCase() + id.slice(1))
+  .join(", ");
 
 // ─── Tool 1: generate_map ───────────────────────────────────────
 
 server.tool(
   "generate_map",
-  "Analyze dependency graph of a directory and return file import/export structure as JSON. Supports JS/TS, Python, Rust, Go, Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Dart, Scala.",
+  `Analyze dependency graph of a directory and return file import/export structure as JSON. Supports ${languageList}.`,
   {
     targetDir: z
       .string()
@@ -46,8 +59,7 @@ server.tool(
       .min(0)
       .optional()
       .describe("Max analysis depth (0 = unlimited)"),
-    language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
+    language: languageEnum
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
@@ -79,7 +91,7 @@ server.tool(
 
 server.tool(
   "analyze_existing_architecture",
-  "Comprehensive architecture analysis for existing projects. Shows critical components, circular dependencies, orphan files, coupling hotspots, and directory breakdown. Supports 13 languages.",
+  `Comprehensive architecture analysis for existing projects. Shows critical components, circular dependencies, orphan files, coupling hotspots, and directory breakdown. Supports ${LANGUAGE_IDS.length} languages.`,
   {
     targetDir: z
       .string()
@@ -104,8 +116,7 @@ server.tool(
       .string()
       .default(".")
       .describe("Project root (needed only when saveSnapshot is true)"),
-    language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
+    language: languageEnum
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
@@ -146,8 +157,7 @@ server.tool(
       .string()
       .default(".")
       .describe("Project root (where .archtracker is placed)"),
-    language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
+    language: languageEnum
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
@@ -195,8 +205,7 @@ server.tool(
       .string()
       .default(".")
       .describe("Project root (where .archtracker is placed)"),
-    language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
+    language: languageEnum
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
@@ -249,8 +258,7 @@ server.tool(
       .string()
       .default(".")
       .describe("Project root"),
-    language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
+    language: languageEnum
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
@@ -347,8 +355,7 @@ server.tool(
       .max(50)
       .optional()
       .describe("Max results (default: 10)"),
-    language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
+    language: languageEnum
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
