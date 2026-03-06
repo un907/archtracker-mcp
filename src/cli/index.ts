@@ -21,7 +21,7 @@ program
   .description(
     "Architecture & Dependency Tracker — Prevent missed architecture changes in AI-driven development",
   )
-  .version("0.1.0")
+  .version("0.3.1")
   .option("--lang <locale>", "Language (en/ja, auto-detected from LANG env)")
   .hook("preAction", (thisCommand) => {
     const lang = thisCommand.opts().lang;

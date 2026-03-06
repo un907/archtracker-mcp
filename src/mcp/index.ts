@@ -23,14 +23,14 @@ import { t } from "../i18n/index.js";
 
 const server = new McpServer({
   name: "archtracker",
-  version: "0.2.0",
+  version: "0.3.1",
 });
 
 // ─── Tool 1: generate_map ───────────────────────────────────────
 
 server.tool(
   "generate_map",
-  "Analyze dependency graph of a directory and return file import/export structure as JSON. Supports JS/TS, Python, Rust, Go, Java, C/C++, Ruby, PHP, Swift, Kotlin.",
+  "Analyze dependency graph of a directory and return file import/export structure as JSON. Supports JS/TS, Python, Rust, Go, Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Dart, Scala.",
   {
     targetDir: z
       .string()
@@ -79,7 +79,7 @@ server.tool(
 
 server.tool(
   "analyze_existing_architecture",
-  "Comprehensive architecture analysis for existing projects. Shows critical components, circular dependencies, orphan files, coupling hotspots, and directory breakdown. Supports 10 languages.",
+  "Comprehensive architecture analysis for existing projects. Shows critical components, circular dependencies, orphan files, coupling hotspots, and directory breakdown. Supports 13 languages.",
   {
     targetDir: z
       .string()
