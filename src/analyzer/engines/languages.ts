@@ -324,6 +324,15 @@ const java: LanguageConfig = {
         if (projectFiles.has(full)) return full;
       }
     }
+    // Suffix fallback: try right-side segments for non-Maven layouts
+    // e.g. com.example.analytics.processors.TraceProcessor → processors/TraceProcessor.java
+    for (let i = 1; i < segments.length; i++) {
+      const filePath = segments.slice(i).join("/") + ".java";
+      for (const srcRoot of ["", "src/main/java/", "src/", "app/src/main/java/"]) {
+        const full = join(rootDir, srcRoot, filePath);
+        if (projectFiles.has(full)) return full;
+      }
+    }
     return null;
   },
   defaultExclude: ["build", "target", "\\.gradle", "\\.idea"],
@@ -389,13 +398,20 @@ const php: LanguageConfig = {
   importPatterns: [
     // require/include/require_once/include_once 'path'
     { regex: /\b(?:require|include)(?:_once)?\s+['"]([^'"]+)['"]/gm },
+    // require_once __DIR__ . '/path' (common PHP pattern)
+    { regex: /\b(?:require|include)(?:_once)?\s+__DIR__\s*\.\s*['"]([^'"]+)['"]/gm },
     // Bug #9 fix: use Namespace\Class — skip `function` and `const` keywords
     { regex: /^use\s+(?:function\s+|const\s+)?([\w\\]+)/gm },
   ],
   resolveImport(importPath, sourceFile, rootDir, projectFiles) {
+    // Handle __DIR__ relative paths: strip leading /
+    let normalizedPath = importPath;
+    if (normalizedPath.startsWith("/")) {
+      normalizedPath = normalizedPath.slice(1);
+    }
     // Direct file path
-    if (importPath.includes("/") || importPath.endsWith(".php")) {
-      const withExt = importPath.endsWith(".php") ? importPath : importPath + ".php";
+    if (normalizedPath.includes("/") || normalizedPath.endsWith(".php")) {
+      const withExt = normalizedPath.endsWith(".php") ? normalizedPath : normalizedPath + ".php";
       const fromSource = resolve(dirname(sourceFile), withExt);
       if (projectFiles.has(fromSource)) return fromSource;
       const fromRoot = join(rootDir, withExt);
@@ -414,18 +430,58 @@ const php: LanguageConfig = {
 };
 
 // ─── Swift ───────────────────────────────────────────
+/** Files that don't define referenceable Swift types */
+const SWIFT_SKIP_FILES = new Set(["Package", "main", "AppDelegate", "SceneDelegate"]);
+
 const swift: LanguageConfig = {
   id: "swift",
   extensions: [".swift"],
   commentStyle: "c-style",
-  importPatterns: [
-    // Bug #10 fix: import ModuleName and @testable import ModuleName
-    { regex: /^(?:@testable\s+)?import\s+(?:class\s+|struct\s+|enum\s+|protocol\s+|func\s+|var\s+|let\s+|typealias\s+)?(\w+)/gm },
-  ],
-  resolveImport(importPath, sourceFile, rootDir, projectFiles) {
+  importPatterns: [], // handled by extractImports
+  extractImports(content: string, filePath: string, _rootDir: string, projectFiles: Set<string>): string[] {
+    const imports: string[] = [];
+
+    // 1. Module imports: import ModuleName / @testable import ModuleName
+    const moduleRegex = /^(?:@testable\s+)?import\s+(?:class\s+|struct\s+|enum\s+|protocol\s+|func\s+|var\s+|let\s+|typealias\s+)?(\w+)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = moduleRegex.exec(content)) !== null) {
+      imports.push(match[1]);
+    }
+
+    // 2. Intra-module type reference scanning (like C# engine)
+    //    Swift files in the same module can reference each other without imports
+    const typeMap = new Map<string, string>();
+    for (const f of projectFiles) {
+      if (f === filePath || !f.endsWith(".swift")) continue;
+      const basename = f.split("/").pop()!.replace(/\.swift$/, "");
+      if (!basename || SWIFT_SKIP_FILES.has(basename)) continue;
+      typeMap.set(basename, f);
+    }
+
+    if (typeMap.size > 0) {
+      const escaped = [...typeMap.keys()].map((n) =>
+        n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      );
+      const combined = new RegExp(`\\b(${escaped.join("|")})\\b`, "g");
+      const matched = new Set<string>();
+      while ((match = combined.exec(content)) !== null) {
+        const typeName = match[1];
+        const targetPath = typeMap.get(typeName);
+        if (targetPath && !matched.has(targetPath)) {
+          matched.add(targetPath);
+          imports.push(targetPath); // full path — resolveImport passes through
+        }
+      }
+    }
+
+    return imports;
+  },
+  resolveImport(importPath, _sourceFile, rootDir, projectFiles) {
+    // Direct file path (from type reference scanning)
+    if (projectFiles.has(importPath)) return importPath;
+
     // Cross-module: import Module → find Sources/Module/*.swift
     const spmDir = join(rootDir, "Sources", importPath);
-    // Return the first .swift file in the target module directory
     for (const f of projectFiles) {
       if (f.startsWith(spmDir + "/") && f.endsWith(".swift")) return f;
     }
@@ -456,7 +512,8 @@ const kotlin: LanguageConfig = {
     }
 
     // Convert com.example.Class to com/example/Class.kt
-    const filePath = cleanPath.replace(/\./g, "/");
+    const segments = cleanPath.split(".");
+    const filePath = segments.join("/");
     for (const ext of [".kt", ".kts"]) {
       for (const srcRoot of [
         "",
@@ -468,6 +525,23 @@ const kotlin: LanguageConfig = {
       ]) {
         const full = join(rootDir, srcRoot, filePath + ext);
         if (projectFiles.has(full)) return full;
+      }
+    }
+    // Suffix fallback: try right-side segments for non-standard layouts
+    for (let i = 1; i < segments.length; i++) {
+      const suffixPath = segments.slice(i).join("/");
+      for (const ext of [".kt", ".kts"]) {
+        for (const srcRoot of [
+          "",
+          "src/main/kotlin/",
+          "src/main/java/",
+          "src/",
+          "app/src/main/kotlin/",
+          "app/src/main/java/",
+        ]) {
+          const full = join(rootDir, srcRoot, suffixPath + ext);
+          if (projectFiles.has(full)) return full;
+        }
       }
     }
     return null;
@@ -580,8 +654,12 @@ const dart: LanguageConfig = {
       const prefix = `package:${ownPackage}/`;
       if (!importPath.startsWith(prefix)) return null; // external package
       const relPath = importPath.slice(prefix.length);
-      const full = join(rootDir, "lib", relPath);
-      if (projectFiles.has(full)) return full;
+      // Try lib/ first (standard pub.dev packages)
+      const libPath = join(rootDir, "lib", relPath);
+      if (projectFiles.has(libPath)) return libPath;
+      // Fallback to root level (Flutter apps without lib/)
+      const rootPath = join(rootDir, relPath);
+      if (projectFiles.has(rootPath)) return rootPath;
       return null;
     }
 
@@ -644,12 +722,22 @@ const scala: LanguageConfig = {
   },
   resolveImport(importPath, _sourceFile, rootDir, projectFiles) {
     const segments = importPath.split(".");
-    // Try progressively shorter paths
+    // Try progressively shorter left-prefix paths
     for (let i = segments.length; i > 0; i--) {
       const filePath = segments.slice(0, i).join("/");
       for (const ext of [".scala", ".sc"]) {
         for (const srcRoot of ["", "src/main/scala/", "src/", "app/"]) {
           const full = join(rootDir, srcRoot, filePath + ext);
+          if (projectFiles.has(full)) return full;
+        }
+      }
+    }
+    // Suffix fallback: try right-side segments for non-SBT layouts
+    for (let i = 1; i < segments.length; i++) {
+      const suffixPath = segments.slice(i).join("/");
+      for (const ext of [".scala", ".sc"]) {
+        for (const srcRoot of ["", "src/main/scala/", "src/", "app/"]) {
+          const full = join(rootDir, srcRoot, suffixPath + ext);
           if (projectFiles.has(full)) return full;
         }
       }

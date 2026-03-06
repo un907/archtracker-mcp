@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { readFileSync } from "node:fs";
 import type {
   DependencyGraph,
   DependencyEdge,
@@ -6,7 +7,7 @@ import type {
   LayerMetadata,
   MultiLayerGraph,
 } from "../types/schema.js";
-import type { LayerDefinition } from "../types/layers.js";
+import type { LayerDefinition, CrossLayerConnection } from "../types/layers.js";
 import { analyzeProject } from "./analyze.js";
 import { detectLanguage } from "./engines/detect.js";
 
@@ -65,6 +66,159 @@ export async function analyzeMultiLayer(
 
   return { layers, layerMetadata, merged };
 }
+
+/**
+ * Auto-detect cross-layer connections by scanning file contents
+ * for references to identifiers defined in other layers.
+ *
+ * Strategies:
+ * 1. Unique type-name matching: PascalCase names (≥6 chars) unique to one layer
+ * 2. Layer-name in import contexts: "from <layer> import" / "/<layer>/" etc.
+ *
+ * Results are deduplicated to max 1 connection per (sourceLayer → targetLayer) pair.
+ */
+export function detectCrossLayerConnections(
+  layers: Record<string, DependencyGraph>,
+  layerDefs: LayerDefinition[],
+): CrossLayerConnection[] {
+  // Build identifier map per layer: { layerName → { identifierName → filePath } }
+  const layerIdentifiers = new Map<string, Map<string, string>>();
+  for (const [layerName, graph] of Object.entries(layers)) {
+    const identifiers = new Map<string, string>();
+    for (const filePath of Object.keys(graph.files)) {
+      const basename = filePath.split("/").pop()!;
+      const nameNoExt = basename.replace(/\.[^.]+$/, "");
+      if (nameNoExt.length < 5 || GENERIC_BASENAMES.has(nameNoExt.toLowerCase())) continue;
+      identifiers.set(nameNoExt, filePath);
+    }
+    layerIdentifiers.set(layerName, identifiers);
+  }
+
+  // Track best connection per (source→target) layer pair, with score
+  const pairBest = new Map<string, { conn: CrossLayerConnection; score: number }>();
+
+  function tryAdd(pairKey: string, conn: CrossLayerConnection, score: number) {
+    const existing = pairBest.get(pairKey);
+    if (!existing || score > existing.score) {
+      pairBest.set(pairKey, { conn, score });
+    }
+  }
+
+  for (const [sourceLayer, graph] of Object.entries(layers)) {
+    // Build source layer's own identifiers for exclusion
+    const ownNames = layerIdentifiers.get(sourceLayer) ?? new Map();
+
+    for (const filePath of Object.keys(graph.files)) {
+      const absPath = join(graph.rootDir, filePath);
+      let content: string;
+      try {
+        content = readFileSync(absPath, "utf-8");
+      } catch { continue; }
+
+      // Strategy 1: File-name matching across layers
+      for (const [targetLayer, targetIds] of layerIdentifiers) {
+        if (targetLayer === sourceLayer) continue;
+        for (const [targetName, targetFile] of targetIds) {
+          // Skip if this name also exists in source layer (ambiguous)
+          if (ownNames.has(targetName)) continue;
+          if (!content.includes(targetName)) continue;
+          const regex = new RegExp(`\\b${escapeRegex(targetName)}\\b`);
+          if (regex.test(content)) {
+            const pairKey = `${sourceLayer}→${targetLayer}`;
+            // Score: longer name = more specific = higher confidence
+            tryAdd(pairKey, {
+              fromLayer: sourceLayer,
+              fromFile: filePath,
+              toLayer: targetLayer,
+              toFile: targetFile,
+              type: "auto",
+              label: targetName,
+            }, targetName.length);
+          }
+        }
+      }
+
+      // Strategy 2: Layer name / targetDir in import, URL, or string contexts
+      for (const def of layerDefs) {
+        if (def.name === sourceLayer) continue;
+        const pairKey = `${sourceLayer}→${def.name}`;
+
+        const layerName = def.name;
+        const dirName = def.targetDir.split("/").pop()!;
+
+        const patterns: { re: RegExp; score: number }[] = [
+          // Direct reference: "StorageClient", "AuthService", etc.
+          { re: new RegExp(`\\b${escapeRegex(layerName)}(?:Client|Service|API|Handler|Provider)\\b`), score: 20 },
+          // Import context: from <layer> import, require('<layer>/...')
+          { re: new RegExp(`(?:from|require|import).*\\b${escapeRegex(dirName)}\\b`, "i"), score: 15 },
+          // URL path: /api/, /auth/, /storage/
+          { re: new RegExp(`['"\`]\\s*/(?:api/)?${escapeRegex(dirName)}[/'"\`]`, "i"), score: 12 },
+          // String containing layer name in service context
+          { re: new RegExp(`['"\`]${escapeRegex(dirName)}['"\`]`, "i"), score: 8 },
+        ];
+
+        for (const { re, score } of patterns) {
+          if (re.test(content)) {
+            const targetGraph = layers[def.name];
+            if (!targetGraph) continue;
+            const entryFile = findEntryPoint(targetGraph);
+            if (entryFile) {
+              tryAdd(pairKey, {
+                fromLayer: sourceLayer,
+                fromFile: filePath,
+                toLayer: def.name,
+                toFile: entryFile,
+                type: "auto",
+                label: `→ ${def.name}`,
+              }, score);
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return [...pairBest.values()].map((v) => v.conn);
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Find the most likely entry point file in a layer's graph */
+function findEntryPoint(graph: DependencyGraph): string | null {
+  const files = Object.values(graph.files);
+  if (files.length === 0) return null;
+
+  // Prefer files with most dependents (highest fan-in)
+  const sorted = files.sort((a, b) => b.dependents.length - a.dependents.length);
+  if (sorted[0].dependents.length > 0) return sorted[0].path;
+
+  // Fallback: common entry point names
+  const entryNames = ["main", "index", "app", "server", "lib", "mod"];
+  for (const name of entryNames) {
+    const entry = files.find((f) => {
+      const basename = f.path.split("/").pop()!.replace(/\.[^.]+$/, "").toLowerCase();
+      return basename === name;
+    });
+    if (entry) return entry.path;
+  }
+
+  return files[0].path;
+}
+
+/** Generic basenames that would cause too many false positives */
+const GENERIC_BASENAMES = new Set([
+  "index", "main", "app", "config", "utils", "helpers", "types", "models",
+  "views", "controllers", "services", "lib", "src", "test", "spec",
+  "setup", "init", "mod", "package", "build", "server", "client",
+  "routes", "middleware", "database", "error", "errors", "logger",
+  "constants", "common", "base", "core", "data", "manager", "handler",
+  "factory", "context", "state", "store", "cache", "queue", "task",
+  "worker", "event", "events", "model", "view", "home", "user", "page",
+  "layout", "router", "provider", "component", "widget", "screen",
+]);
 
 /**
  * Merge multiple layer graphs into a single DependencyGraph.

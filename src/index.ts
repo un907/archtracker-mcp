@@ -15,8 +15,8 @@ export type {
   MultiLayerGraph,
 } from "./types/schema.js";
 export { SCHEMA_VERSION } from "./types/schema.js";
-export type { LayerDefinition, LayerConfig } from "./types/layers.js";
-export { analyzeProject, analyzeMultiLayer, AnalyzerError } from "./analyzer/index.js";
+export type { LayerDefinition, LayerConfig, CrossLayerConnection } from "./types/layers.js";
+export { analyzeProject, analyzeMultiLayer, detectCrossLayerConnections, AnalyzerError } from "./analyzer/index.js";
 export type { AnalyzeOptions } from "./analyzer/index.js";
 export { saveSnapshot, loadSnapshot, hasArchtrackerDir, loadLayerConfig, saveLayerConfig, StorageError } from "./storage/index.js";
 export { computeDiff, formatDiffReport } from "./storage/index.js";

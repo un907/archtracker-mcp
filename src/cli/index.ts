@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { watch } from "node:fs";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { analyzeProject, analyzeMultiLayer, AnalyzerError, formatAnalysisReport } from "../analyzer/index.js";
+import { analyzeProject, analyzeMultiLayer, detectCrossLayerConnections, AnalyzerError, formatAnalysisReport } from "../analyzer/index.js";
 import {
   saveSnapshot,
   loadSnapshot,
@@ -39,11 +39,24 @@ async function resolveGraph(opts: {
     const layerConfig = await loadLayerConfig(opts.root);
     if (layerConfig) {
       const multi = await analyzeMultiLayer(opts.root, layerConfig.layers);
+      // Merge manual connections from layers.json with auto-detected ones
+      const autoConnections = detectCrossLayerConnections(multi.layers, layerConfig.layers);
+      const manualConnections = layerConfig.connections ?? [];
+      // Manual connections take priority; deduplicate by fromLayer/fromFile→toLayer/toFile
+      const manualKeys = new Set(manualConnections.map(
+        (c) => `${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`,
+      ));
+      const merged = [
+        ...manualConnections,
+        ...autoConnections.filter(
+          (c) => !manualKeys.has(`${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`),
+        ),
+      ];
       return {
         graph: multi.merged,
         multiLayer: multi,
         layerMetadata: multi.layerMetadata,
-        crossLayerEdges: layerConfig.connections,
+        crossLayerEdges: merged,
       };
     }
   }

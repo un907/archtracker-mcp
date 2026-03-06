@@ -27,12 +27,12 @@ export interface LayerConfig {
   connections?: CrossLayerConnection[];
 }
 
-/** Reserved for future cross-layer edge support */
+/** Cross-layer edge definition */
 export interface CrossLayerConnection {
   fromLayer: string;
   fromFile: string;
   toLayer: string;
   toFile: string;
-  type: "api-call" | "event" | "data-flow" | "manual";
+  type: "api-call" | "event" | "data-flow" | "manual" | "auto";
   label?: string;
 }

@@ -10,4 +10,4 @@ export {
 } from "./search.js";
 export type { SearchResult } from "./search.js";
 export { formatAnalysisReport } from "./report.js";
-export { analyzeMultiLayer } from "./multi-layer.js";
+export { analyzeMultiLayer, detectCrossLayerConnections } from "./multi-layer.js";

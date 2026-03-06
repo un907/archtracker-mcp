@@ -296,8 +296,10 @@ kbd { background: #21262d; border: 1px solid var(--border); border-radius: 3px; 
     <div class="detail-section"><h4 data-i18n="detail.importedBy">Imported by</h4><ul class="detail-list" id="d-dependents"></ul></div>
     <div class="detail-section"><h4 data-i18n="detail.imports">Imports</h4><ul class="detail-list" id="d-deps"></ul></div>
   </div>
-  <div id="layer-filters" style="position:absolute;bottom:40px;left:12px;right:120px;z-index:10;display:flex;flex-wrap:wrap;gap:5px;"></div>
-  <div id="filters"></div>
+  <div id="filter-bar">
+    <div id="filter-dir-panel"></div>
+    <div id="filter-layer-row"></div>
+  </div>
   <div id="zoom-ctrl">
     <button onclick="zoomIn()" title="Zoom in">+</button>
     <button onclick="zoomOut()" title="Zoom out">−</button>
@@ -325,7 +327,9 @@ kbd { background: #21262d; border: 1px solid var(--border); border-radius: 3px; 
     <div class="detail-section"><h4 data-i18n="detail.importedBy">Imported by</h4><ul class="detail-list" id="hd-dependents"></ul></div>
     <div class="detail-section"><h4 data-i18n="detail.imports">Imports</h4><ul class="detail-list" id="hd-deps"></ul></div>
   </div>
-  <div id="hier-filters" style="position:absolute;bottom:42px;left:12px;right:120px;z-index:10;display:flex;flex-wrap:wrap;gap:5px;"></div>
+  <div id="hier-filter-bar" style="position:absolute;bottom:12px;left:12px;right:120px;z-index:10;display:none;">
+    <div id="hier-filter-row" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+  </div>
   <div id="help-bar" style="position:absolute" data-i18n="help.hierarchy">Scroll to navigate · Click to highlight</div>
 </div>
 
@@ -968,8 +972,36 @@ if (LAYERS && LAYERS.length > 0) {
     setTimeout(() => zoomFit(), 200);
   }
 
-  // ─── Layer filter pills ────────────────────
-  const layerFiltersEl = document.getElementById('layer-filters');
+  // ─── Layer filter pills (new grouped bar) ────────────────────
+  const layerRowEl = document.getElementById('filter-layer-row');
+  const dirPanelEl = document.getElementById('filter-dir-panel');
+
+  // Dir toggle button
+  const dirToggle = document.createElement('div');
+  dirToggle.id = 'filter-dir-toggle';
+  dirToggle.textContent = '▸ Dirs';
+  dirToggle.onclick = () => {
+    dirToggle.classList.toggle('open');
+    dirPanelEl.classList.toggle('open');
+    dirToggle.textContent = dirPanelEl.classList.contains('open') ? '▾ Dirs' : '▸ Dirs';
+  };
+  layerRowEl.appendChild(dirToggle);
+
+  // Cross-layer link toggle
+  if (crossLinkData.length > 0) {
+    let crossLinksVisible = true;
+    const crossToggle = document.createElement('div');
+    crossToggle.className = 'layer-pill active';
+    crossToggle.innerHTML = '<span style="color:#f0883e;font-size:9px">- -</span> Links <span class="lp-count">' + crossLinkData.length + '</span>';
+    crossToggle.onclick = () => {
+      crossLinksVisible = !crossLinksVisible;
+      crossToggle.classList.toggle('active', crossLinksVisible);
+      crossLink.attr('display', crossLinksVisible ? null : 'none');
+      crossLabel.attr('display', crossLinksVisible ? null : 'none');
+    };
+    layerRowEl.appendChild(crossToggle);
+  }
+
   LAYERS.forEach(layer => {
     const layerNodes = DATA.nodes.filter(n => n.layer === layer.name);
     const pill = document.createElement('div');
@@ -990,7 +1022,34 @@ if (LAYERS && LAYERS.length > 0) {
       node.select('circle').transition().duration(150).attr('opacity', 1);
       node.select('text').transition().duration(150).attr('opacity', d => d.dependents >= 1 || d.deps >= 3 ? 1 : 0.5);
     };
-    layerFiltersEl.appendChild(pill);
+    layerRowEl.appendChild(pill);
+
+    // Build dir group in panel for this layer
+    const layerDirs = [...new Set(layerNodes.map(n => n.dir))].sort();
+    if (layerDirs.length > 0) {
+      const group = document.createElement('div');
+      group.className = 'dir-group';
+      const label = document.createElement('div');
+      label.className = 'dir-group-label';
+      label.innerHTML = '<div class="dg-dot" style="background:' + layer.color + '"></div>' + layer.name;
+      group.appendChild(label);
+      const pillsWrap = document.createElement('div');
+      pillsWrap.className = 'dir-group-pills';
+      layerDirs.forEach(dir => {
+        const dp = document.createElement('div');
+        dp.className = 'filter-pill active';
+        const shortDir = dir.includes('/') ? dir.substring(dir.indexOf('/') + 1) : dir;
+        dp.innerHTML = '<div class="pill-dot" style="background:' + dirColor(dir) + '"></div>' + (shortDir || '.') + ' <span class="pill-count">' + (dirCounts[dir] || 0) + '</span>';
+        dp.onclick = () => {
+          if (activeDirs.has(dir)) { activeDirs.delete(dir); dp.classList.remove('active'); }
+          else { activeDirs.add(dir); dp.classList.add('active'); }
+          applyLayerFilter();
+        };
+        pillsWrap.appendChild(dp);
+      });
+      group.appendChild(pillsWrap);
+      dirPanelEl.appendChild(group);
+    }
   });
 
   // Override applyFilter to respect layers
@@ -1086,31 +1145,34 @@ searchInput.addEventListener('input',e=>{
 });
 
 // ─── Filters (click=toggle, hover=highlight nodes) ──
-const filtersEl=document.getElementById('filters');
 const activeDirs=new Set(DATA.dirs);
 const dirCounts={};
 DATA.nodes.forEach(n=>dirCounts[n.dir]=(dirCounts[n.dir]||0)+1);
-DATA.dirs.forEach(dir=>{
-  const pill=document.createElement('div');
-  pill.className='filter-pill active';
-  pill.innerHTML='<div class="pill-dot" style="background:'+dirColor(dir)+'"></div>'+(dir||'.')+' <span class="pill-count">'+dirCounts[dir]+'</span>';
-  pill.onclick=()=>{
-    if(activeDirs.has(dir)){activeDirs.delete(dir);pill.classList.remove('active');}
-    else{activeDirs.add(dir);pill.classList.add('active');}
-    applyFilter();
-  };
-  pill.onmouseenter=()=>{
-    if(pinnedNode)return;
-    node.select('circle').transition().duration(120).attr('opacity',d=>d.dir===dir?1:0.1);
-    node.select('text').transition().duration(120).attr('opacity',d=>d.dir===dir?1:0.05);
-  };
-  pill.onmouseleave=()=>{
-    if(pinnedNode)return;
-    node.select('circle').transition().duration(150).attr('opacity',1);
-    node.select('text').transition().duration(150).attr('opacity',d=>d.dependents>=1||d.deps>=3?1:0.5);
-  };
-  filtersEl.appendChild(pill);
-});
+if (!LAYERS) {
+  // Non-layer mode: flat pills in filter-layer-row
+  const filterRowEl=document.getElementById('filter-layer-row');
+  DATA.dirs.forEach(dir=>{
+    const pill=document.createElement('div');
+    pill.className='filter-pill active';
+    pill.innerHTML='<div class="pill-dot" style="background:'+dirColor(dir)+'"></div>'+(dir||'.')+' <span class="pill-count">'+dirCounts[dir]+'</span>';
+    pill.onclick=()=>{
+      if(activeDirs.has(dir)){activeDirs.delete(dir);pill.classList.remove('active');}
+      else{activeDirs.add(dir);pill.classList.add('active');}
+      applyFilter();
+    };
+    pill.onmouseenter=()=>{
+      if(pinnedNode)return;
+      node.select('circle').transition().duration(120).attr('opacity',d=>d.dir===dir?1:0.1);
+      node.select('text').transition().duration(120).attr('opacity',d=>d.dir===dir?1:0.05);
+    };
+    pill.onmouseleave=()=>{
+      if(pinnedNode)return;
+      node.select('circle').transition().duration(150).attr('opacity',1);
+      node.select('text').transition().duration(150).attr('opacity',d=>d.dependents>=1||d.deps>=3?1:0.5);
+    };
+    filterRowEl.appendChild(pill);
+  });
+}
 function applyFilter(){
   if (LAYERS) {
     // Delegate to layer-aware filter
@@ -1296,26 +1358,80 @@ function buildHierarchy(){
   // Click on empty space to deselect
   hSvg.on('click',()=>{closeHierDetail();});
 
-  // Hierarchy dir filters
-  const hFiltersEl=document.getElementById('hier-filters');
-  const hActiveDirs=new Set(DATA.dirs);
-  DATA.dirs.forEach(dir=>{
-    const pill=document.createElement('div');
-    pill.className='filter-pill active';
-    pill.innerHTML='<div class="pill-dot" style="background:'+dirColor(dir)+'"></div>'+(dir||'.')+' <span class="pill-count">'+(dirCounts[dir]||0)+'</span>';
-    pill.onclick=()=>{
-      if(hActiveDirs.has(dir)){hActiveDirs.delete(dir);pill.classList.remove('active');}
-      else{hActiveDirs.add(dir);pill.classList.add('active');}
-      nodeG.selectAll('.hier-node').attr('opacity',function(){const nId=this.__data_id;return hActiveDirs.has(nodeMap[nId]?.dir)?1:0.1;});
+  // Hierarchy filters — layer pills or dir pills
+  const hFilterRow=document.getElementById('hier-filter-row');
+  const hFilterBar=document.getElementById('hier-filter-bar');
+  if (hFilterBar) hFilterBar.style.display='';
+  const hActiveLayers=new Set(LAYERS ? LAYERS.map(l=>l.name) : []);
+
+  function hierApplyFilter() {
+    nodeG.selectAll('.hier-node').attr('opacity',function(){
+      const nId=this.__data_id; const nd=nodeMap[nId];
+      if(!nd) return 0.1;
+      if (LAYERS && nd.layer && !hActiveLayers.has(nd.layer)) return 0.1;
+      return 1;
+    });
+    linkG.selectAll('path').attr('opacity',function(){
+      const sId=this.getAttribute('data-source'), tId=this.getAttribute('data-target');
+      const sN=nodeMap[sId], tN=nodeMap[tId];
+      if (!sN || !tN) return 0.15;
+      if (LAYERS) {
+        if (sN.layer && !hActiveLayers.has(sN.layer)) return 0.05;
+        if (tN.layer && !hActiveLayers.has(tN.layer)) return 0.05;
+      }
+      return 1;
+    });
+  }
+
+  if (LAYERS) {
+    // "All" button
+    const allPill=document.createElement('div');
+    allPill.className='layer-pill active';
+    allPill.style.fontWeight='400';
+    allPill.textContent='All';
+    allPill.onclick=()=>{
+      LAYERS.forEach(l=>hActiveLayers.add(l.name));
+      hFilterRow.querySelectorAll('.layer-pill').forEach(p=>p.classList.add('active'));
+      hierApplyFilter();
     };
-    pill.onmouseenter=()=>{
-      nodeG.selectAll('.hier-node').attr('opacity',function(){return this.__data_id&&nodeMap[this.__data_id]?.dir===dir?1:0.1;});
-    };
-    pill.onmouseleave=()=>{
-      nodeG.selectAll('.hier-node').attr('opacity',1);
-    };
-    hFiltersEl.appendChild(pill);
-  });
+    hFilterRow.appendChild(allPill);
+
+    LAYERS.forEach(layer => {
+      const pill=document.createElement('div');
+      pill.className='layer-pill active';
+      const count=DATA.nodes.filter(n=>n.layer===layer.name).length;
+      pill.innerHTML='<div class="lp-dot" style="background:'+layer.color+'"></div>'+layer.name+' <span class="lp-count">'+count+'</span>';
+      pill.onclick=(e)=>{
+        if (e.shiftKey) {
+          // Shift+click: solo this layer
+          hActiveLayers.clear();
+          hActiveLayers.add(layer.name);
+          hFilterRow.querySelectorAll('.layer-pill').forEach(p=>p.classList.remove('active'));
+          pill.classList.add('active');
+          allPill.classList.remove('active');
+        } else {
+          // Regular click: toggle
+          if (hActiveLayers.has(layer.name)) { hActiveLayers.delete(layer.name); pill.classList.remove('active'); }
+          else { hActiveLayers.add(layer.name); pill.classList.add('active'); }
+        }
+        hierApplyFilter();
+      };
+      hFilterRow.appendChild(pill);
+    });
+  } else {
+    const hActiveDirs=new Set(DATA.dirs);
+    DATA.dirs.forEach(dir=>{
+      const pill=document.createElement('div');
+      pill.className='filter-pill active';
+      pill.innerHTML='<div class="pill-dot" style="background:'+dirColor(dir)+'"></div>'+(dir||'.')+' <span class="pill-count">'+(dirCounts[dir]||0)+'</span>';
+      pill.onclick=()=>{
+        if(hActiveDirs.has(dir)){hActiveDirs.delete(dir);pill.classList.remove('active');}
+        else{hActiveDirs.add(dir);pill.classList.add('active');}
+        nodeG.selectAll('.hier-node').attr('opacity',function(){const nId=this.__data_id;return hActiveDirs.has(nodeMap[nId]?.dir)?1:0.1;});
+      };
+      hFilterRow.appendChild(pill);
+    });
+  }
 
   hSvg.call(hZoom.transform,d3.zoomIdentity.translate(
     Math.max(0,(W-totalW)/2),20

@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   analyzeProject,
   analyzeMultiLayer,
+  detectCrossLayerConnections,
   AnalyzerError,
   searchByPath,
   findAffectedFiles,
@@ -65,6 +66,18 @@ async function resolveGraphForMcp(opts: {
     const layerConfig = await loadLayerConfig(opts.projectRoot);
     if (layerConfig) {
       const multi = await analyzeMultiLayer(opts.projectRoot, layerConfig.layers);
+      // Auto-detect cross-layer connections
+      const autoConnections = detectCrossLayerConnections(multi.layers, layerConfig.layers);
+      const manualConnections = layerConfig.connections ?? [];
+      const manualKeys = new Set(manualConnections.map(
+        (c) => `${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`,
+      ));
+      const allConnections = [
+        ...manualConnections,
+        ...autoConnections.filter(
+          (c) => !manualKeys.has(`${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`),
+        ),
+      ];
       return { graph: multi.merged, multiLayer: multi, layerMetadata: multi.layerMetadata };
     }
   }
