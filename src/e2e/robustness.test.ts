@@ -189,7 +189,7 @@ describe("package.json integrity", () => {
 
   it("bin points to correct entry points", () => {
     expect(pkg.bin.archtracker).toBe("dist/cli/index.js");
-    expect(pkg.bin["archtracker-mcp"]).toBe("dist/mcp/index.js");
+    expect(pkg.bin["archtracker-mcp"]).toBe("dist/bin.js");
   });
 
   it("exports are properly configured", () => {

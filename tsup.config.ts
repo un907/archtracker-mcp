@@ -1,7 +1,24 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig([
-  // MCP Server entry (with shebang for bin usage)
+  // Smart entry point (archtracker-mcp bin — CLI or MCP depending on args)
+  {
+    entry: { bin: "src/bin.ts" },
+    format: ["esm"],
+    target: "node18",
+    outDir: "dist",
+    dts: false,
+    sourcemap: true,
+    clean: true,
+    noExternal: [],
+    banner: {
+      js: "#!/usr/bin/env node",
+    },
+    esbuildOptions(options) {
+      options.external = ["./cli/index.js", "./mcp/index.js"];
+    },
+  },
+  // MCP Server entry (also used as direct import)
   {
     entry: { "mcp/index": "src/mcp/index.ts" },
     format: ["esm"],
@@ -9,7 +26,6 @@ export default defineConfig([
     outDir: "dist",
     dts: true,
     sourcemap: true,
-    clean: true,
     banner: {
       js: "#!/usr/bin/env node",
     },

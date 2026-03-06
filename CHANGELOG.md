@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-03-06
+
+### Fixed
+
+- **`npx archtracker-mcp serve` now works**: Smart entry point detects CLI subcommands (serve, analyze, init, etc.) and runs CLI mode; no args starts MCP server — AI agents no longer confuse CLI with MCP server
+
 ## [0.4.1] - 2026-03-06
 
 ### Fixed
@@ -155,6 +161,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security**: Path traversal protection for all file operations
 - **Test suite**: 54 tests (unit + E2E) with Vitest
 
+[0.4.2]: https://github.com/un907/archtracker-mcp/releases/tag/v0.4.2
 [0.4.1]: https://github.com/un907/archtracker-mcp/releases/tag/v0.4.1
 [0.4.0]: https://github.com/un907/archtracker-mcp/releases/tag/v0.4.0
 [0.3.2]: https://github.com/un907/archtracker-mcp/releases/tag/v0.3.2

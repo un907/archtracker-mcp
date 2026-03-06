@@ -1,6 +1,6 @@
 {
   "name": "archtracker-mcp",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Architecture & Dependency Tracker — MCP server + CLI + interactive web viewer for AI-driven development",
   "type": "module",
   "main": "dist/index.js",
@@ -16,7 +16,7 @@
   },
   "bin": {
     "archtracker": "dist/cli/index.js",
-    "archtracker-mcp": "dist/mcp/index.js"
+    "archtracker-mcp": "dist/bin.js"
   },
   "files": [
     "dist",
