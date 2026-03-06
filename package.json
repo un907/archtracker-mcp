@@ -1,6 +1,6 @@
 {
   "name": "archtracker-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Architecture & Dependency Tracker — MCP server + CLI + interactive web viewer for AI-driven development",
   "type": "module",
   "main": "dist/index.js",
@@ -19,7 +19,8 @@
   },
   "files": [
     "dist",
-    "skills"
+    "skills",
+    "scripts"
   ],
   "scripts": {
     "build": "tsup",
@@ -27,6 +28,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/postinstall.cjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -71,6 +73,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.3.3",
+    "playwright": "^1.58.2",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
