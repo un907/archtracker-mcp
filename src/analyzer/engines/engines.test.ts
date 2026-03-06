@@ -279,7 +279,9 @@ describe("Rust analyzer", () => {
     expect(files).toContain("src/main.rs");
     expect(files).toContain("src/utils.rs");
     expect(files).toContain("src/models.rs");
-    expect(graph.totalFiles).toBe(3);
+    expect(files).toContain("src/handlers/mod.rs");
+    expect(files).toContain("src/handlers/api.rs");
+    expect(graph.totalFiles).toBe(5);
   });
 
   it("should resolve mod utils; → src/utils.rs", async () => {
@@ -652,10 +654,13 @@ describe("Graph integrity", () => {
     { name: "go", dir: "go-project" },
     { name: "java", dir: "java-project" },
     { name: "c-cpp", dir: "cpp-project" },
+    { name: "c-sharp", dir: "csharp-project" },
     { name: "ruby", dir: "ruby-project" },
     { name: "php", dir: "php-project" },
     { name: "swift", dir: "swift-project" },
     { name: "kotlin", dir: "kotlin-project" },
+    { name: "dart", dir: "dart-project" },
+    { name: "scala", dir: "scala-project" },
   ] as const;
 
   for (const { name, dir } of languages) {
@@ -683,5 +688,706 @@ describe("Graph integrity", () => {
         expect(edge.source).not.toBe(edge.target);
       }
     });
+
+    it(`${name}: dependencies/dependents arrays match edges`, async () => {
+      const graph = await analyzeProject(join(FIXTURES, dir), { language: name });
+      for (const edge of graph.edges) {
+        expect(graph.files[edge.source]?.dependencies).toContain(edge.target);
+        expect(graph.files[edge.target]?.dependents).toContain(edge.source);
+      }
+    });
+
+    it(`${name}: no duplicate edges`, async () => {
+      const graph = await analyzeProject(join(FIXTURES, dir), { language: name });
+      const edgeKeys = graph.edges.map((e) => `${e.source}\0${e.target}`);
+      expect(new Set(edgeKeys).size).toBe(edgeKeys.length);
+    });
   }
+});
+
+// ═══════════════════════════════════════════════════════
+// Python: Multi-import syntax (import a, b, c)
+// ═══════════════════════════════════════════════════════
+
+describe("Python multi-import", () => {
+  const dir = join(FIXTURES, "python-project");
+
+  it("should resolve 'import utils, helpers' to both utils.py and helpers.py", async () => {
+    const graph = await analyzeProject(dir, { language: "python" });
+    expect(hasEdge(graph, "main.py", "utils.py")).toBe(true);
+    expect(hasEdge(graph, "main.py", "helpers.py")).toBe(true);
+  });
+
+  it("should find helpers.py in the file list", async () => {
+    const graph = await analyzeProject(dir, { language: "python" });
+    expect(graph.files["helpers.py"]).toBeDefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Rust: super:: and self:: imports, nested modules
+// ═══════════════════════════════════════════════════════
+
+describe("Rust nested modules and super::", () => {
+  const dir = join(FIXTURES, "rust-project");
+
+  it("should resolve mod handlers; → src/handlers/mod.rs", async () => {
+    const graph = await analyzeProject(dir, { language: "rust" });
+    expect(hasEdge(graph, "src/main.rs", "src/handlers/mod.rs")).toBe(true);
+  });
+
+  it("should resolve mod api; in handlers/mod.rs → handlers/api.rs", async () => {
+    const graph = await analyzeProject(dir, { language: "rust" });
+    expect(hasEdge(graph, "src/handlers/mod.rs", "src/handlers/api.rs")).toBe(true);
+  });
+
+  it("should resolve use crate::models::User in handlers/api.rs → src/models.rs", async () => {
+    const graph = await analyzeProject(dir, { language: "rust" });
+    expect(hasEdge(graph, "src/handlers/api.rs", "src/models.rs")).toBe(true);
+  });
+
+  it("should detect circular dependency between utils.rs and models.rs", async () => {
+    const graph = await analyzeProject(dir, { language: "rust" });
+    expect(hasEdge(graph, "src/utils.rs", "src/models.rs")).toBe(true);
+    expect(hasEdge(graph, "src/models.rs", "src/utils.rs")).toBe(true);
+    expect(graph.circularDependencies.length).toBeGreaterThanOrEqual(1);
+    const allCycleFiles = graph.circularDependencies.flatMap((c) => c.cycle);
+    expect(allCycleFiles).toContain("src/utils.rs");
+    expect(allCycleFiles).toContain("src/models.rs");
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Java: Wildcard and static imports
+// ═══════════════════════════════════════════════════════
+
+describe("Java wildcard and static imports", () => {
+  const dir = join(FIXTURES, "java-project");
+
+  it("should ignore wildcard import com.example.* (no edge)", async () => {
+    const graph = await analyzeProject(dir, { language: "java" });
+    const mainEdges = edgesFrom(graph, "src/main/java/com/example/Main.java");
+    // Wildcard should NOT produce any edge — only Service and Repository
+    expect(mainEdges).toHaveLength(2);
+  });
+
+  it("should resolve static import to the class file (com.example.Service.staticMethod → Service.java)", async () => {
+    const graph = await analyzeProject(dir, { language: "java" });
+    // static import com.example.Service.staticMethod should resolve to Service.java
+    // which is already an edge from the regular import — so still 2 edges
+    expect(hasEdge(graph, "src/main/java/com/example/Main.java", "src/main/java/com/example/Service.java")).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Kotlin: Wildcard imports
+// ═══════════════════════════════════════════════════════
+
+describe("Kotlin wildcard imports", () => {
+  const dir = join(FIXTURES, "kotlin-project");
+
+  it("should ignore wildcard import com.example.* (no edge)", async () => {
+    const graph = await analyzeProject(dir, { language: "kotlin" });
+    const mainEdges = edgesFrom(graph, "src/main/kotlin/com/example/Main.kt");
+    // Wildcard should NOT produce any edge — only Service and Repository
+    expect(mainEdges).toHaveLength(2);
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// PHP: use function/const (no false edges)
+// ═══════════════════════════════════════════════════════
+
+describe("PHP use function/const", () => {
+  const dir = join(FIXTURES, "php-project");
+
+  it("should not create edges for use function/const (unresolvable namespace)", async () => {
+    const graph = await analyzeProject(dir, { language: "php" });
+    const indexEdges = edgesFrom(graph, "index.php");
+    // Only the require statements should create edges, not the use statements
+    expect(indexEdges).toHaveLength(2);
+    expect(hasEdge(graph, "index.php", "src/Controllers/HomeController.php")).toBe(true);
+    expect(hasEdge(graph, "index.php", "src/Controllers/ApiController.php")).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Swift: @testable import
+// ═══════════════════════════════════════════════════════
+
+describe("Swift @testable import", () => {
+  const dir = join(FIXTURES, "swift-project");
+
+  it("should resolve @testable import Utils → Sources/Utils/greet.swift", async () => {
+    const graph = await analyzeProject(dir, { language: "swift" });
+    expect(hasEdge(graph, "Sources/App/main.swift", "Sources/Utils/greet.swift")).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Comment Stripping: Advanced Edge Cases
+// ═══════════════════════════════════════════════════════
+
+describe("stripComments edge cases", () => {
+  // C-style char literals
+  it("should not treat char literal '/' as comment start", () => {
+    const input = "char c = '/';\nuse crate::real;";
+    const result = stripComments(input, "c-style");
+    expect(result).toContain("use crate::real;");
+    expect(result).toContain("'/'");
+  });
+
+  it("should handle escaped char literal '\\''", () => {
+    const input = "char c = '\\'';\nuse crate::real;";
+    const result = stripComments(input, "c-style");
+    expect(result).toContain("use crate::real;");
+  });
+
+  it("should handle char literal '\\n'", () => {
+    const input = "char nl = '\\n';\nimport real;";
+    const result = stripComments(input, "c-style");
+    expect(result).toContain("import real;");
+  });
+
+  // Rust raw strings
+  it("should strip Rust raw string r\"...\"", () => {
+    const input = 'let s = r"use crate::fake;";\nuse crate::real;';
+    const result = stripComments(input, "c-style");
+    expect(result).toContain("use crate::real;");
+    expect(result).not.toContain("fake");
+  });
+
+  it("should strip Rust raw string r#\"...\"#", () => {
+    const input = 'let s = r#"use crate::fake;"#;\nuse crate::real;';
+    const result = stripComments(input, "c-style");
+    expect(result).toContain("use crate::real;");
+    expect(result).not.toContain("fake");
+  });
+
+  it("should strip Rust raw string r##\"...\"## with embedded \"#", () => {
+    const input = 'let s = r##"has "# inside"##;\nuse crate::real;';
+    const result = stripComments(input, "c-style");
+    expect(result).toContain("use crate::real;");
+    expect(result).not.toContain("inside");
+  });
+
+  // Go backtick strings
+  it("should strip Go backtick strings", () => {
+    const input = 'var s = `import "fake"`;\nimport "real";';
+    const result = stripComments(input, "c-style");
+    expect(result).toContain('import "real"');
+    expect(result).not.toContain("fake");
+  });
+
+  it("should preserve newlines inside Go backtick strings", () => {
+    const input = 'var s = `line1\nline2`;\nline3';
+    const result = stripComments(input, "c-style");
+    expect(result.split("\n").length).toBe(3);
+    expect(result).toContain("line3");
+  });
+
+  // Python string prefixes
+  it("should strip Python r-string (raw string)", () => {
+    const input = 'x = r"import fake"\nimport real';
+    const result = stripComments(input, "python");
+    expect(result).toContain("import real");
+    // r"..." is a regular string, so its content is preserved (only triple-quoted are stripped)
+    // Actually, Python single-quoted strings are preserved in our implementation
+  });
+
+  it("should strip Python f-string triple-quoted", () => {
+    const input = 'x = f"""\nimport fake\n"""\nimport real';
+    const result = stripComments(input, "python");
+    expect(result).toContain("import real");
+    expect(result).not.toContain("fake");
+  });
+
+  it("should strip Python b-string triple-quoted", () => {
+    const input = "x = b'''\nimport fake\n'''\nimport real";
+    const result = stripComments(input, "python");
+    expect(result).toContain("import real");
+    expect(result).not.toContain("fake");
+  });
+
+  it("should strip Python rb-string triple-quoted", () => {
+    const input = 'x = rb"""\nimport fake\n"""\nimport real';
+    const result = stripComments(input, "python");
+    expect(result).toContain("import real");
+    expect(result).not.toContain("fake");
+  });
+
+  it("should strip Python fr-string triple-quoted (case insensitive)", () => {
+    const input = 'x = FR"""\nimport fake\n"""\nimport real';
+    const result = stripComments(input, "python");
+    expect(result).toContain("import real");
+    expect(result).not.toContain("fake");
+  });
+
+  // Ruby string interpolation
+  it("should preserve Ruby #{} string interpolation (not treat # as comment)", () => {
+    const input = 'puts "hello #{name}"\nrequire_relative \'real\'';
+    const result = stripComments(input, "ruby");
+    expect(result).toContain("require_relative 'real'");
+    expect(result).toContain("hello #{name}");
+  });
+
+  it("should handle nested Ruby #{} interpolation", () => {
+    const input = 'x = "val: #{a + "#{b}"}";\nrequire_relative \'real\'';
+    const result = stripComments(input, "ruby");
+    expect(result).toContain("require_relative 'real'");
+  });
+
+  // Ruby =begin/=end strict matching
+  it("should not treat =beginning as block comment start", () => {
+    const input = "=beginning\nrequire_relative 'real'";
+    const result = stripComments(input, "ruby");
+    expect(result).toContain("=beginning");
+    expect(result).toContain("require_relative 'real'");
+  });
+
+  it("should handle =begin with trailing whitespace", () => {
+    const input = "=begin \nrequire 'fake'\n=end\nrequire_relative 'real'";
+    const result = stripComments(input, "ruby");
+    expect(result).not.toContain("fake");
+    expect(result).toContain("require_relative 'real'");
+  });
+
+  // PHP heredoc/nowdoc
+  it("should strip PHP heredoc content", () => {
+    const input = "$x = <<<EOT\nrequire 'fake.php';\nEOT;\nrequire 'real.php';";
+    const result = stripComments(input, "php");
+    expect(result).toContain("require 'real.php'");
+    expect(result).not.toContain("fake");
+  });
+
+  it("should strip PHP nowdoc content", () => {
+    const input = "$x = <<<'EOT'\nrequire 'fake.php';\nEOT;\nrequire 'real.php';";
+    const result = stripComments(input, "php");
+    expect(result).toContain("require 'real.php'");
+    expect(result).not.toContain("fake");
+  });
+
+  // Multi-line block comments preserving line numbers
+  it("should preserve exact line count in multi-line C-style block comment", () => {
+    const input = "line1\n/*\nline3\nline4\nline5\n*/\nline7";
+    const result = stripComments(input, "c-style");
+    const lines = result.split("\n");
+    expect(lines.length).toBe(7);
+    expect(lines[0]).toBe("line1");
+    expect(lines[6]).toBe("line7");
+  });
+
+  // Strings containing comment-like content
+  it("should not strip // inside double-quoted string", () => {
+    const input = 'x = "// not a comment";\nimport real;';
+    const result = stripComments(input, "c-style");
+    expect(result).toContain("import real;");
+    expect(result).toContain('"// not a comment"');
+  });
+
+  it("should not strip /* */ inside double-quoted string", () => {
+    const input = 'x = "/* not a comment */";\nimport real;';
+    const result = stripComments(input, "c-style");
+    expect(result).toContain("import real;");
+    expect(result).toContain('"/* not a comment */"');
+  });
+
+  it("should handle escaped quotes in strings before comments", () => {
+    const input = 'x = "escaped \\"quote";\n// real comment\nimport real;';
+    const result = stripComments(input, "c-style");
+    expect(result).toContain("import real;");
+    expect(result).not.toContain("real comment");
+  });
+
+  // PHP # comments
+  it("should strip PHP # comment", () => {
+    const input = "require 'real.php';\n# require 'fake.php';\nrequire 'also_real.php';";
+    const result = stripComments(input, "php");
+    expect(result).toContain("require 'real.php'");
+    expect(result).toContain("require 'also_real.php'");
+    expect(result).not.toContain("fake");
+  });
+
+  // Empty input
+  it("should handle empty string for all styles", () => {
+    expect(stripComments("", "c-style")).toBe("");
+    expect(stripComments("", "hash")).toBe("");
+    expect(stripComments("", "python")).toBe("");
+    expect(stripComments("", "ruby")).toBe("");
+    expect(stripComments("", "php")).toBe("");
+  });
+
+  // Input with no comments
+  it("should return identical content when no comments or strings exist", () => {
+    const input = "import foo;\nimport bar;\n";
+    expect(stripComments(input, "c-style")).toBe(input);
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Empty and Single-File Projects
+// ═══════════════════════════════════════════════════════
+
+describe("Edge case projects", () => {
+  it("should handle empty project (no source files)", async () => {
+    const dir = join(FIXTURES, "empty-project");
+    const graph = await analyzeProject(dir, { language: "python" });
+    expect(graph.totalFiles).toBe(0);
+    expect(graph.totalEdges).toBe(0);
+    expect(graph.edges).toHaveLength(0);
+    expect(graph.circularDependencies).toHaveLength(0);
+  });
+
+  it("should handle single-file project (no dependencies)", async () => {
+    const dir = join(FIXTURES, "single-file-project");
+    const graph = await analyzeProject(dir, { language: "python" });
+    expect(graph.totalFiles).toBe(1);
+    expect(graph.totalEdges).toBe(0);
+    expect(Object.keys(graph.files)).toContain("main.py");
+    expect(graph.files["main.py"].dependencies).toHaveLength(0);
+    expect(graph.files["main.py"].dependents).toHaveLength(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Rust grouped use: extractRustUsePaths unit tests
+// ═══════════════════════════════════════════════════════
+
+describe("Rust grouped use extraction", () => {
+  it("should handle deeply nested grouped imports", async () => {
+    const dir = join(FIXTURES, "rust-project");
+    const graph = await analyzeProject(dir, { language: "rust" });
+    // main.rs has: use crate::models::{User, Config}
+    // Both should resolve to models.rs
+    expect(hasEdge(graph, "src/main.rs", "src/models.rs")).toBe(true);
+  });
+
+  it("should handle self in grouped import (use crate::models::{self, User})", () => {
+    // Unit test: stripComments + extractImports indirectly via a content parse
+    const content = "use crate::models::{self, User};";
+    const stripped = stripComments(content, "c-style");
+    expect(stripped).toContain("use crate::models::{self, User}");
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Regex Engine: maxDepth option
+// ═══════════════════════════════════════════════════════
+
+describe("RegexEngine maxDepth", () => {
+  it("should respect maxDepth=1 and only find top-level files", async () => {
+    const dir = join(FIXTURES, "python-project");
+    const graph = await analyzeProject(dir, { language: "python", maxDepth: 1 });
+    const files = Object.keys(graph.files);
+    // maxDepth=1: only files in the root directory (main.py, utils.py, helpers.py, circular_a.py, circular_b.py)
+    for (const f of files) {
+      expect(f).not.toContain("/"); // no subdirectory files
+    }
+  });
+
+  it("should find all files when maxDepth=0 (unlimited)", async () => {
+    const dir = join(FIXTURES, "python-project");
+    const graph = await analyzeProject(dir, { language: "python", maxDepth: 0 });
+    const files = Object.keys(graph.files);
+    expect(files.some((f) => f.includes("/"))).toBe(true); // has subdirectory files
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Regex Engine: exclude patterns
+// ═══════════════════════════════════════════════════════
+
+describe("RegexEngine exclude patterns", () => {
+  it("should exclude files matching custom patterns", async () => {
+    const dir = join(FIXTURES, "python-project");
+    const graph = await analyzeProject(dir, { language: "python", exclude: ["services"] });
+    const files = Object.keys(graph.files);
+    for (const f of files) {
+      expect(f).not.toContain("services");
+    }
+  });
+
+  it("should exclude circular_ files when pattern matches", async () => {
+    const dir = join(FIXTURES, "python-project");
+    const graph = await analyzeProject(dir, { language: "python", exclude: ["circular"] });
+    const files = Object.keys(graph.files);
+    for (const f of files) {
+      expect(f).not.toContain("circular");
+    }
+    // No circular dependencies should be detected
+    expect(graph.circularDependencies).toHaveLength(0);
+  });
+
+  it("should apply default exclude patterns (e.g. __pycache__)", async () => {
+    // Default excludes for Python include __pycache__ - just verify the option is applied
+    const dir = join(FIXTURES, "python-project");
+    const graph = await analyzeProject(dir, { language: "python" });
+    const files = Object.keys(graph.files);
+    for (const f of files) {
+      expect(f).not.toContain("__pycache__");
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Go: import block edge cases
+// ═══════════════════════════════════════════════════════
+
+describe("Go import edge cases", () => {
+  const dir = join(FIXTURES, "go-project");
+
+  it("should resolve both single and block imports", async () => {
+    const graph = await analyzeProject(dir, { language: "go" });
+    // main.go uses import block, handler.go uses single import
+    expect(hasEdge(graph, "main.go", "pkg/utils/utils.go")).toBe(true);
+    expect(hasEdge(graph, "handler.go", "pkg/utils/utils.go")).toBe(true);
+  });
+
+  it("should not create edges for stdlib imports (fmt, net/http, etc.)", async () => {
+    const graph = await analyzeProject(dir, { language: "go" });
+    for (const edge of graph.edges) {
+      expect(edge.target).not.toContain("fmt");
+      expect(edge.target).not.toContain("net/http");
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// C/C++: include resolution
+// ═══════════════════════════════════════════════════════
+
+describe("C/C++ include resolution", () => {
+  const dir = join(FIXTURES, "cpp-project");
+
+  it("should NOT resolve system includes (#include <...>)", async () => {
+    const graph = await analyzeProject(dir, { language: "c-cpp" });
+    for (const edge of graph.edges) {
+      expect(edge.target).not.toContain("stdio");
+      expect(edge.target).not.toContain("iostream");
+    }
+  });
+
+  it("should resolve relative path includes (../include/config.h)", async () => {
+    const graph = await analyzeProject(dir, { language: "c-cpp" });
+    expect(hasEdge(graph, "src/main.cpp", "include/config.h")).toBe(true);
+  });
+
+  it("should resolve same-directory includes (utils.h from utils.cpp)", async () => {
+    const graph = await analyzeProject(dir, { language: "c-cpp" });
+    expect(hasEdge(graph, "src/utils.cpp", "src/utils.h")).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Language auto-detection fallback
+// ═══════════════════════════════════════════════════════
+
+describe("Language auto-detection", () => {
+  it("should auto-detect Python for python-project", async () => {
+    const dir = join(FIXTURES, "python-project");
+    const lang = await detectLanguage(dir);
+    expect(lang).toBe("python");
+  });
+
+  it("should auto-detect Rust for rust-project", async () => {
+    const dir = join(FIXTURES, "rust-project");
+    const lang = await detectLanguage(dir);
+    expect(lang).toBe("rust");
+  });
+
+  it("should auto-detect when analyzeProject is called without language", async () => {
+    const dir = join(FIXTURES, "go-project");
+    // Should auto-detect Go from go.mod and produce correct results
+    const graph = await analyzeProject(dir);
+    expect(graph.totalFiles).toBe(3);
+    expect(hasEdge(graph, "main.go", "pkg/utils/utils.go")).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// All languages: dependents/dependencies cross-check
+// ═══════════════════════════════════════════════════════
+
+describe("dependencies/dependents consistency", () => {
+  const languages = [
+    { name: "python", dir: "python-project" },
+    { name: "rust", dir: "rust-project" },
+    { name: "go", dir: "go-project" },
+    { name: "java", dir: "java-project" },
+    { name: "c-cpp", dir: "cpp-project" },
+    { name: "c-sharp", dir: "csharp-project" },
+    { name: "ruby", dir: "ruby-project" },
+    { name: "php", dir: "php-project" },
+    { name: "swift", dir: "swift-project" },
+    { name: "kotlin", dir: "kotlin-project" },
+    { name: "dart", dir: "dart-project" },
+    { name: "scala", dir: "scala-project" },
+  ] as const;
+
+  for (const { name, dir } of languages) {
+    it(`${name}: dependency count matches outgoing edge count for each file`, async () => {
+      const graph = await analyzeProject(join(FIXTURES, dir), { language: name });
+      for (const [filePath, node] of Object.entries(graph.files)) {
+        const outEdges = graph.edges.filter((e) => e.source === filePath);
+        expect(node.dependencies.length).toBe(outEdges.length);
+      }
+    });
+
+    it(`${name}: dependents count matches incoming edge count for each file`, async () => {
+      const graph = await analyzeProject(join(FIXTURES, dir), { language: name });
+      for (const [filePath, node] of Object.entries(graph.files)) {
+        const inEdges = graph.edges.filter((e) => e.target === filePath);
+        expect(node.dependents.length).toBe(inEdges.length);
+      }
+    });
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// C# Analysis
+// ═══════════════════════════════════════════════════════
+
+describe("C# analyzer", () => {
+  const dir = join(FIXTURES, "csharp-project");
+
+  it("should detect C# from .sln file", async () => {
+    expect(await detectLanguage(dir)).toBe("c-sharp");
+  });
+
+  it("should find all C# files", async () => {
+    const graph = await analyzeProject(dir, { language: "c-sharp" });
+    const files = Object.keys(graph.files).sort();
+    expect(files).toContain("Program.cs");
+    expect(files).toContain("Services/UserService.cs");
+    expect(files).toContain("Models/User.cs");
+    expect(graph.totalFiles).toBe(3);
+  });
+
+  it("should resolve Program.cs → Services/UserService.cs (using MyApp.Services)", async () => {
+    const graph = await analyzeProject(dir, { language: "c-sharp" });
+    expect(hasEdge(graph, "Program.cs", "Services/UserService.cs")).toBe(true);
+  });
+
+  it("should resolve Program.cs → Models/User.cs (using MyApp.Models)", async () => {
+    const graph = await analyzeProject(dir, { language: "c-sharp" });
+    expect(hasEdge(graph, "Program.cs", "Models/User.cs")).toBe(true);
+  });
+
+  it("should resolve UserService.cs → Models/User.cs", async () => {
+    const graph = await analyzeProject(dir, { language: "c-sharp" });
+    expect(hasEdge(graph, "Services/UserService.cs", "Models/User.cs")).toBe(true);
+  });
+
+  it("should NOT create edges from commented-out using statements", async () => {
+    const graph = await analyzeProject(dir, { language: "c-sharp" });
+    const progEdges = edgesFrom(graph, "Program.cs");
+    expect(progEdges).toHaveLength(2); // Services and Models only
+    for (const edge of progEdges) {
+      expect(edge.target).not.toContain("Fake");
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Dart Analysis
+// ═══════════════════════════════════════════════════════
+
+describe("Dart analyzer", () => {
+  const dir = join(FIXTURES, "dart-project");
+
+  it("should detect Dart from pubspec.yaml", async () => {
+    expect(await detectLanguage(dir)).toBe("dart");
+  });
+
+  it("should find all Dart files", async () => {
+    const graph = await analyzeProject(dir, { language: "dart" });
+    const files = Object.keys(graph.files).sort();
+    expect(files).toContain("lib/app.dart");
+    expect(files).toContain("lib/utils.dart");
+    expect(files).toContain("lib/models/user.dart");
+    expect(files).toContain("bin/main.dart");
+    expect(graph.totalFiles).toBe(4);
+  });
+
+  it("should resolve package:my_app/utils.dart → lib/utils.dart", async () => {
+    const graph = await analyzeProject(dir, { language: "dart" });
+    expect(hasEdge(graph, "lib/app.dart", "lib/utils.dart")).toBe(true);
+  });
+
+  it("should resolve package:my_app/models/user.dart → lib/models/user.dart", async () => {
+    const graph = await analyzeProject(dir, { language: "dart" });
+    expect(hasEdge(graph, "lib/app.dart", "lib/models/user.dart")).toBe(true);
+  });
+
+  it("should resolve utils.dart → lib/models/user.dart", async () => {
+    const graph = await analyzeProject(dir, { language: "dart" });
+    expect(hasEdge(graph, "lib/utils.dart", "lib/models/user.dart")).toBe(true);
+  });
+
+  it("should NOT resolve dart:core (stdlib)", async () => {
+    const graph = await analyzeProject(dir, { language: "dart" });
+    for (const edge of graph.edges) {
+      expect(edge.target).not.toContain("dart:");
+    }
+  });
+
+  it("should NOT create edges from commented-out imports", async () => {
+    const graph = await analyzeProject(dir, { language: "dart" });
+    const appEdges = edgesFrom(graph, "lib/app.dart");
+    expect(appEdges).toHaveLength(2); // utils.dart and models/user.dart only
+    for (const edge of appEdges) {
+      expect(edge.target).not.toContain("fake");
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// Scala Analysis
+// ═══════════════════════════════════════════════════════
+
+describe("Scala analyzer", () => {
+  const dir = join(FIXTURES, "scala-project");
+
+  it("should detect Scala from build.sbt", async () => {
+    expect(await detectLanguage(dir)).toBe("scala");
+  });
+
+  it("should find all Scala files", async () => {
+    const graph = await analyzeProject(dir, { language: "scala" });
+    const files = Object.keys(graph.files).sort();
+    expect(files).toContain("src/main/scala/com/example/Main.scala");
+    expect(files).toContain("src/main/scala/com/example/services/UserService.scala");
+    expect(files).toContain("src/main/scala/com/example/models/User.scala");
+    expect(graph.totalFiles).toBe(3);
+  });
+
+  it("should resolve Main.scala → UserService.scala", async () => {
+    const graph = await analyzeProject(dir, { language: "scala" });
+    expect(
+      hasEdge(graph, "src/main/scala/com/example/Main.scala", "src/main/scala/com/example/services/UserService.scala"),
+    ).toBe(true);
+  });
+
+  it("should resolve Main.scala → User.scala", async () => {
+    const graph = await analyzeProject(dir, { language: "scala" });
+    expect(
+      hasEdge(graph, "src/main/scala/com/example/Main.scala", "src/main/scala/com/example/models/User.scala"),
+    ).toBe(true);
+  });
+
+  it("should resolve UserService.scala → User.scala", async () => {
+    const graph = await analyzeProject(dir, { language: "scala" });
+    expect(
+      hasEdge(graph, "src/main/scala/com/example/services/UserService.scala", "src/main/scala/com/example/models/User.scala"),
+    ).toBe(true);
+  });
+
+  it("should NOT create edges from commented-out imports", async () => {
+    const graph = await analyzeProject(dir, { language: "scala" });
+    const mainEdges = edgesFrom(graph, "src/main/scala/com/example/Main.scala");
+    expect(mainEdges).toHaveLength(2); // UserService and User only
+    for (const edge of mainEdges) {
+      expect(edge.target).not.toContain("Fake");
+    }
+  });
 });

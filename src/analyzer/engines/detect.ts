@@ -13,13 +13,22 @@ const MARKERS: Array<{ file: string; language: LanguageId }> = [
   { file: "pom.xml", language: "java" },
   { file: "build.gradle", language: "java" },
   { file: "build.gradle.kts", language: "kotlin" },
+  { file: "build.sbt", language: "scala" },
+  { file: "build.sc", language: "scala" },
   { file: "Package.swift", language: "swift" },
   { file: "Gemfile", language: "ruby" },
   { file: "composer.json", language: "php" },
+  { file: "pubspec.yaml", language: "dart" },
   { file: "CMakeLists.txt", language: "c-cpp" },
   { file: "Makefile", language: "c-cpp" },
   { file: "package.json", language: "javascript" },
   { file: "tsconfig.json", language: "javascript" },
+];
+
+/** Extension-based markers for languages without fixed-name marker files */
+const EXT_MARKERS: Array<[string, LanguageId]> = [
+  [".sln", "c-sharp"],
+  [".csproj", "c-sharp"],
 ];
 
 /** Extension-to-language mapping for fallback detection */
@@ -45,6 +54,10 @@ const EXT_MAP: Record<string, LanguageId> = {
   ".swift": "swift",
   ".kt": "kotlin",
   ".kts": "kotlin",
+  ".cs": "c-sharp",
+  ".dart": "dart",
+  ".scala": "scala",
+  ".sc": "scala",
 };
 
 /**
@@ -63,6 +76,19 @@ export async function detectLanguage(rootDir: string): Promise<LanguageId> {
     } catch {
       // file doesn't exist, continue
     }
+  }
+
+  // Phase 1.5: extension-based markers (e.g. *.sln, *.csproj for C#)
+  try {
+    const topEntries = await readdir(rootDir, { withFileTypes: true });
+    for (const entry of topEntries) {
+      if (!entry.isFile()) continue;
+      for (const [ext, lang] of EXT_MARKERS) {
+        if (entry.name.endsWith(ext)) return lang;
+      }
+    }
+  } catch {
+    // ignore
   }
 
   // Phase 2: extension frequency (shallow scan)

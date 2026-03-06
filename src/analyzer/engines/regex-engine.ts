@@ -26,6 +26,7 @@ export class RegexEngine implements AnalyzerEngine {
     // 1. Collect all matching files
     const projectFiles = await this.collectFiles(
       absRootDir,
+      absRootDir,
       excludePatterns,
       options.maxDepth ?? 0,
     );
@@ -55,6 +56,7 @@ export class RegexEngine implements AnalyzerEngine {
       try {
         content = await readFile(filePath, "utf-8");
       } catch {
+        if (files[relSource]) files[relSource].exists = false;
         continue;
       }
 
@@ -109,8 +111,9 @@ export class RegexEngine implements AnalyzerEngine {
 
     const imports: string[] = [];
     for (const pattern of this.config.importPatterns) {
-      // Reset regex state
-      const regex = new RegExp(pattern.regex.source, pattern.regex.flags);
+      // Reset regex state, ensuring 'g' flag is present to prevent infinite loops
+      const flags = pattern.regex.flags.includes('g') ? pattern.regex.flags : pattern.regex.flags + 'g';
+      const regex = new RegExp(pattern.regex.source, flags);
       let match: RegExpExecArray | null;
       while ((match = regex.exec(content)) !== null) {
         // Use the first capturing group as the import path
@@ -124,6 +127,7 @@ export class RegexEngine implements AnalyzerEngine {
 
   private async collectFiles(
     dir: string,
+    absRootDir: string,
     excludePatterns: RegExp[],
     maxDepth: number,
     currentDepth: number = 0,
@@ -140,7 +144,7 @@ export class RegexEngine implements AnalyzerEngine {
 
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
-      const relPath = relative(dir, fullPath);
+      const relPath = relative(absRootDir, fullPath);
 
       // Check excludes against the entry name and relative path
       if (
@@ -155,6 +159,7 @@ export class RegexEngine implements AnalyzerEngine {
         if (entry.name.startsWith(".")) continue;
         const sub = await this.collectFiles(
           fullPath,
+          absRootDir,
           excludePatterns,
           maxDepth,
           currentDepth + 1,

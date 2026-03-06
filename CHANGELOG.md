@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-03-06
+
+### Added
+
+- **3 new languages**: C#, Dart, Scala — total **13 languages** supported
+  - C# (`using Namespace;`, `using static`, namespace-to-directory resolution, `.sln`/`.csproj` detection)
+  - Dart (`import 'package:...'`, relative imports, `pubspec.yaml` package name resolution, `dart:` stdlib skip)
+  - Scala (`import pkg.Class`, grouped `import pkg.{A, B}`, wildcard `._` skip, `build.sbt`/`build.sc` detection)
+- **Extension-based marker detection**: Languages without fixed-name markers (e.g. C# `.sln`) detected via file extension scan
+
+### Fixed
+
+- **C-style char literals**: `'/'` no longer triggers false comment detection
+- **Rust raw strings**: `r"..."`, `r#"..."#`, `r##"..."##` content correctly stripped
+- **Ruby `=begin`/`=end`**: Strict line-start matching (no false match on `=beginning`)
+- **Ruby `#{}` interpolation**: String interpolation with nested braces handled correctly
+- **PHP heredoc/nowdoc**: `<<<EOT` and `<<<'EOT'` block content correctly stripped
+- **Python string prefixes**: `r""`, `f""`, `b""`, `rb""`, `fr""` (case-insensitive) handled correctly
+- **Python multi-import**: `import a, b, c` now resolves all modules
+- **Rust `use super::`/`use self::`**: Relative module imports now resolved correctly
+- **Java wildcard imports**: `import com.example.*` correctly returns null (no false edge)
+- **Java static imports**: `import static com.example.Class.method` resolves to class file via progressive shortening
+- **Kotlin wildcard imports**: `import com.example.*` correctly returns null
+- **PHP `use function`/`use const`**: Keywords stripped before namespace resolution
+- **Swift `@testable import`**: Correctly recognized as valid import
+- **Regex engine infinite loop**: All import regex patterns now force `g` flag
+
+### Changed
+
+- **Test suite expanded**: 293 tests (133 new), covering comment stripping edge cases, maxDepth/exclude options, empty/single-file projects, language auto-detection, dependencies/dependents cross-checks for all 13 languages
+
 ## [0.2.1] - 2026-03-06
 
 ### Fixed
@@ -70,6 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security**: Path traversal protection for all file operations
 - **Test suite**: 54 tests (unit + E2E) with Vitest
 
+[0.3.0]: https://github.com/un907/archtracker-mcp/releases/tag/v0.3.0
 [0.2.1]: https://github.com/un907/archtracker-mcp/releases/tag/v0.2.1
 [0.2.0]: https://github.com/un907/archtracker-mcp/releases/tag/v0.2.0
 [0.1.1]: https://github.com/un907/archtracker-mcp/releases/tag/v0.1.1

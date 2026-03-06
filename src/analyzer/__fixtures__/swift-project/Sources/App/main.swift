@@ -1,4 +1,4 @@
-import Utils
+@testable import Utils
 
 func main() {
     greet()

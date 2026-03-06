@@ -1,5 +1,6 @@
 mod utils;
 mod models;
+mod handlers;
 
 use crate::utils::helper;
 use crate::models::{User, Config};

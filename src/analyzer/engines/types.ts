@@ -7,10 +7,13 @@ export type LanguageId =
   | "go"
   | "java"
   | "c-cpp"
+  | "c-sharp"
   | "ruby"
   | "php"
   | "swift"
-  | "kotlin";
+  | "kotlin"
+  | "dart"
+  | "scala";
 
 export interface AnalyzerEngine {
   analyze(

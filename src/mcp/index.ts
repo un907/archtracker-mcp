@@ -47,7 +47,7 @@ server.tool(
       .optional()
       .describe("Max analysis depth (0 = unlimited)"),
     language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
@@ -105,7 +105,7 @@ server.tool(
       .default(".")
       .describe("Project root (needed only when saveSnapshot is true)"),
     language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
@@ -147,7 +147,7 @@ server.tool(
       .default(".")
       .describe("Project root (where .archtracker is placed)"),
     language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
@@ -196,7 +196,7 @@ server.tool(
       .default(".")
       .describe("Project root (where .archtracker is placed)"),
     language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
@@ -250,7 +250,7 @@ server.tool(
       .default(".")
       .describe("Project root"),
     language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
@@ -348,7 +348,7 @@ server.tool(
       .optional()
       .describe("Max results (default: 10)"),
     language: z
-      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "c-sharp", "ruby", "php", "swift", "kotlin", "dart", "scala"])
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },

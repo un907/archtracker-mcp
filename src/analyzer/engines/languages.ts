@@ -10,9 +10,31 @@ const python: LanguageConfig = {
   importPatterns: [
     // from package.module import something
     { regex: /^from\s+(\.[\w.]*|\w[\w.]*)\s+import\b/gm },
-    // import package.module
-    { regex: /^import\s+([\w.]+)/gm },
+    // import package.module (handled by extractImports for multi-module case)
   ],
+  // Bug #1 fix: custom extractImports to handle `import a, b, c`
+  extractImports(content: string): string[] {
+    const imports: string[] = [];
+
+    // from package.module import something
+    const fromRegex = /^from\s+(\.[\w.]*|\w[\w.]*)\s+import\b/gm;
+    let match: RegExpExecArray | null;
+    while ((match = fromRegex.exec(content)) !== null) {
+      imports.push(match[1]);
+    }
+
+    // import a, b, c — captures all comma-separated modules
+    const importRegex = /^import\s+([\w.]+(?:\s*,\s*[\w.]+)*)/gm;
+    while ((match = importRegex.exec(content)) !== null) {
+      const modules = match[1].split(",");
+      for (const mod of modules) {
+        const trimmed = mod.trim();
+        if (trimmed) imports.push(trimmed);
+      }
+    }
+
+    return imports;
+  },
   resolveImport(importPath, sourceFile, rootDir, projectFiles) {
     // Relative imports (starts with .)
     if (importPath.startsWith(".")) {
@@ -60,6 +82,20 @@ const rust: LanguageConfig = {
       extractRustUsePaths(body, "", imports);
     }
 
+    // Bug #2 fix: use super::... imports
+    const useSuperRegex = /\buse\s+super::([\s\S]*?);/gm;
+    while ((match = useSuperRegex.exec(content)) !== null) {
+      const body = match[1].trim();
+      extractRustUsePaths(body, "", imports, "super");
+    }
+
+    // Bug #2 fix: use self::... imports
+    const useSelfRegex = /\buse\s+self::([\s\S]*?);/gm;
+    while ((match = useSelfRegex.exec(content)) !== null) {
+      const body = match[1].trim();
+      extractRustUsePaths(body, "", imports, "self");
+    }
+
     return imports;
   },
   resolveImport(importPath, sourceFile, rootDir, projectFiles) {
@@ -72,6 +108,34 @@ const rust: LanguageConfig = {
       if (projectFiles.has(asFile)) return asFile;
       const asDir = join(parentDir, importPath, "mod.rs");
       if (projectFiles.has(asDir)) return asDir;
+      return null;
+    }
+
+    // Bug #3 fix: use super::x::y — resolve from parent directory of source file
+    if (importPath.startsWith("super::")) {
+      const parentDir = dirname(dirname(sourceFile));
+      const segments = importPath.slice("super::".length).split("::");
+      for (let i = segments.length; i > 0; i--) {
+        const path = segments.slice(0, i).join("/");
+        const asFile = join(parentDir, path + ".rs");
+        if (projectFiles.has(asFile)) return asFile;
+        const asDir = join(parentDir, path, "mod.rs");
+        if (projectFiles.has(asDir)) return asDir;
+      }
+      return null;
+    }
+
+    // Bug #4 fix: use self::x::y — resolve from same directory as source file
+    if (importPath.startsWith("self::")) {
+      const selfDir = dirname(sourceFile);
+      const segments = importPath.slice("self::".length).split("::");
+      for (let i = segments.length; i > 0; i--) {
+        const path = segments.slice(0, i).join("/");
+        const asFile = join(selfDir, path + ".rs");
+        if (projectFiles.has(asFile)) return asFile;
+        const asDir = join(selfDir, path, "mod.rs");
+        if (projectFiles.has(asDir)) return asDir;
+      }
       return null;
     }
 
@@ -94,15 +158,19 @@ const rust: LanguageConfig = {
  * Recursively extract Rust use paths, handling grouped imports.
  * e.g. "foo::{bar, baz::qux}" → ["foo::bar", "foo::baz::qux"]
  * e.g. "foo::bar" → ["foo::bar"]
+ * The optional rootPrefix parameter prepends "super" or "self" to all paths.
  */
-function extractRustUsePaths(body: string, prefix: string, results: string[]): void {
+function extractRustUsePaths(body: string, prefix: string, results: string[], rootPrefix?: string): void {
   const trimmed = body.trim();
 
   // Check for grouped import: path::{...}
   const braceStart = trimmed.indexOf("{");
   if (braceStart === -1) {
     // Simple path like "foo::bar::Baz" or just "foo"
-    const path = prefix ? `${prefix}::${trimmed}` : trimmed;
+    let path = prefix ? `${prefix}::${trimmed}` : trimmed;
+    if (rootPrefix) {
+      path = `${rootPrefix}::${path}`;
+    }
     // Remove trailing items after last :: that aren't module names
     // Keep the full path — resolver handles progressively shorter prefixes
     if (path && !path.includes("{")) {
@@ -137,9 +205,10 @@ function extractRustUsePaths(body: string, prefix: string, results: string[]): v
   for (const item of items) {
     const cleaned = item.trim();
     if (cleaned === "self") {
-      results.push(fullPrefix);
+      const selfPath = rootPrefix ? `${rootPrefix}::${fullPrefix}` : fullPrefix;
+      results.push(selfPath);
     } else if (cleaned) {
-      extractRustUsePaths(cleaned, fullPrefix, results);
+      extractRustUsePaths(cleaned, fullPrefix, results, rootPrefix);
     }
   }
 }
@@ -207,7 +276,10 @@ const go: LanguageConfig = {
   defaultExclude: ["vendor"],
 };
 
-// Cache go.mod module prefix per rootDir
+// Bug #11: goModCache is a per-process cache of go.mod module prefixes, keyed by rootDir.
+// It is intentionally never cleared because the module path for a given rootDir does not
+// change during the lifetime of a single process. If a long-running process needs to pick
+// up go.mod changes, restart the process.
 const goModCache = new Map<string, string | null>();
 function goModulePrefix(rootDir: string): string | null {
   if (goModCache.has(rootDir)) return goModCache.get(rootDir)!;
@@ -229,16 +301,26 @@ const java: LanguageConfig = {
   extensions: [".java"],
   commentStyle: "c-style",
   importPatterns: [
-    // import com.example.ClassName;
-    { regex: /^import\s+(?:static\s+)?([\w.]+);/gm },
+    // Bug #5 fix: import com.example.ClassName; and import com.example.*; (wildcard)
+    // Bug #6: static imports also captured here
+    { regex: /^import\s+(?:static\s+)?([\w.*]+);/gm },
   ],
   resolveImport(importPath, _sourceFile, rootDir, projectFiles) {
-    // Convert com.example.Class to com/example/Class.java
-    const filePath = importPath.replace(/\./g, "/") + ".java";
-    // Try common source roots
-    for (const srcRoot of ["", "src/main/java/", "src/", "app/src/main/java/"]) {
-      const full = join(rootDir, srcRoot, filePath);
-      if (projectFiles.has(full)) return full;
+    // Bug #5 fix: wildcard imports — can't resolve to a single file, return null
+    if (importPath.endsWith(".*")) {
+      return null;
+    }
+
+    // Bug #6 fix: static imports — try progressively shorter paths
+    // e.g. com.example.Class.method → try com/example/Class/method.java,
+    // then com/example/Class.java, then com/example.java, etc.
+    const segments = importPath.split(".");
+    for (let i = segments.length; i > 0; i--) {
+      const filePath = segments.slice(0, i).join("/") + ".java";
+      for (const srcRoot of ["", "src/main/java/", "src/", "app/src/main/java/"]) {
+        const full = join(rootDir, srcRoot, filePath);
+        if (projectFiles.has(full)) return full;
+      }
     }
     return null;
   },
@@ -305,8 +387,8 @@ const php: LanguageConfig = {
   importPatterns: [
     // require/include/require_once/include_once 'path'
     { regex: /\b(?:require|include)(?:_once)?\s+['"]([^'"]+)['"]/gm },
-    // use Namespace\Class (PSR-4 style)
-    { regex: /^use\s+([\w\\]+)/gm },
+    // Bug #9 fix: use Namespace\Class — skip `function` and `const` keywords
+    { regex: /^use\s+(?:function\s+|const\s+)?([\w\\]+)/gm },
   ],
   resolveImport(importPath, sourceFile, rootDir, projectFiles) {
     // Direct file path
@@ -335,8 +417,8 @@ const swift: LanguageConfig = {
   extensions: [".swift"],
   commentStyle: "c-style",
   importPatterns: [
-    // import ModuleName (for cross-module dependencies)
-    { regex: /^import\s+(?:class\s+|struct\s+|enum\s+|protocol\s+|func\s+|var\s+|let\s+|typealias\s+)?(\w+)/gm },
+    // Bug #10 fix: import ModuleName and @testable import ModuleName
+    { regex: /^(?:@testable\s+)?import\s+(?:class\s+|struct\s+|enum\s+|protocol\s+|func\s+|var\s+|let\s+|typealias\s+)?(\w+)/gm },
   ],
   resolveImport(importPath, sourceFile, rootDir, projectFiles) {
     // Cross-module: import Module → find Sources/Module/*.swift
@@ -356,12 +438,23 @@ const kotlin: LanguageConfig = {
   extensions: [".kt", ".kts"],
   commentStyle: "c-style",
   importPatterns: [
-    // import com.example.ClassName
-    { regex: /^import\s+([\w.]+)/gm },
+    // Bug #7/#8 fix: import com.example.ClassName and import com.example.*
+    { regex: /^import\s+([\w.*]+)/gm },
   ],
   resolveImport(importPath, _sourceFile, rootDir, projectFiles) {
+    // Bug #8 fix: wildcard imports — can't resolve to a single file, return null
+    if (importPath.endsWith(".*")) {
+      return null;
+    }
+
+    // Bug #7 fix: strip trailing dot if present (from previous regex issues)
+    let cleanPath = importPath;
+    if (cleanPath.endsWith(".")) {
+      cleanPath = cleanPath.slice(0, -1);
+    }
+
     // Convert com.example.Class to com/example/Class.kt
-    const filePath = importPath.replace(/\./g, "/");
+    const filePath = cleanPath.replace(/\./g, "/");
     for (const ext of [".kt", ".kts"]) {
       for (const srcRoot of [
         "",
@@ -380,6 +473,147 @@ const kotlin: LanguageConfig = {
   defaultExclude: ["build", "\\.gradle", "\\.idea"],
 };
 
+// ─── C# ──────────────────────────────────────────────
+const cSharp: LanguageConfig = {
+  id: "c-sharp",
+  extensions: [".cs"],
+  commentStyle: "c-style",
+  importPatterns: [
+    // using Namespace; and using Namespace.SubNamespace;
+    // using static Namespace.Class;
+    // Skip: using Alias = Namespace.Class; (captured but resolved same way)
+    { regex: /^using\s+(?:static\s+)?([\w.]+)\s*;/gm },
+  ],
+  resolveImport(importPath, _sourceFile, rootDir, projectFiles) {
+    const segments = importPath.split(".");
+
+    // 1. Try as direct file path (progressively shorter, like Java static imports)
+    for (let i = segments.length; i > 0; i--) {
+      const filePath = segments.slice(0, i).join("/") + ".cs";
+      for (const srcRoot of ["", "src/", "lib/"]) {
+        const full = join(rootDir, srcRoot, filePath);
+        if (projectFiles.has(full)) return full;
+      }
+    }
+
+    // 2. C# using = namespace import; try as directory, find first .cs file
+    //    Strip leading segments progressively (handles root namespace prefix)
+    for (let start = 0; start < segments.length; start++) {
+      const dirPath = segments.slice(start).join("/");
+      for (const srcRoot of ["", "src/", "lib/"]) {
+        const prefix = join(rootDir, srcRoot, dirPath) + "/";
+        for (const f of projectFiles) {
+          if (f.startsWith(prefix) && f.endsWith(".cs")) return f;
+        }
+      }
+    }
+
+    return null;
+  },
+  defaultExclude: ["bin", "obj", "\\.vs", "packages", "TestResults"],
+};
+
+// ─── Dart ────────────────────────────────────────────
+const dart: LanguageConfig = {
+  id: "dart",
+  extensions: [".dart"],
+  commentStyle: "c-style",
+  importPatterns: [
+    // import 'package:pkg/file.dart'; or import 'relative/path.dart';
+    { regex: /^import\s+['"]([^'"]+)['"]/gm },
+    // export 'file.dart'; (re-exports create dependencies too)
+    { regex: /^export\s+['"]([^'"]+)['"]/gm },
+  ],
+  resolveImport(importPath, sourceFile, rootDir, projectFiles) {
+    // Skip dart: stdlib imports
+    if (importPath.startsWith("dart:")) return null;
+
+    // package: imports — resolve own package to lib/
+    if (importPath.startsWith("package:")) {
+      const ownPackage = dartPackageName(rootDir);
+      if (!ownPackage) return null;
+      const prefix = `package:${ownPackage}/`;
+      if (!importPath.startsWith(prefix)) return null; // external package
+      const relPath = importPath.slice(prefix.length);
+      const full = join(rootDir, "lib", relPath);
+      if (projectFiles.has(full)) return full;
+      return null;
+    }
+
+    // Relative imports
+    const resolved = resolve(dirname(sourceFile), importPath);
+    if (projectFiles.has(resolved)) return resolved;
+    return null;
+  },
+  defaultExclude: ["\\.dart_tool", "build", "\\.packages"],
+};
+
+const dartPackageCache = new Map<string, string | null>();
+function dartPackageName(rootDir: string): string | null {
+  if (dartPackageCache.has(rootDir)) return dartPackageCache.get(rootDir)!;
+  try {
+    const content = readFileSync(join(rootDir, "pubspec.yaml"), "utf-8");
+    const match = content.match(/^name:\s*(\S+)/m);
+    const name = match ? match[1] : null;
+    dartPackageCache.set(rootDir, name);
+    return name;
+  } catch {
+    dartPackageCache.set(rootDir, null);
+    return null;
+  }
+}
+
+// ─── Scala ───────────────────────────────────────────
+const scala: LanguageConfig = {
+  id: "scala",
+  extensions: [".scala", ".sc"],
+  commentStyle: "c-style",
+  importPatterns: [],  // handled by extractImports for grouped syntax
+  extractImports(content: string): string[] {
+    const imports: string[] = [];
+    // import pkg.Class
+    // import pkg.{A, B, C}
+    // import pkg._  (wildcard)
+    const importRegex = /\bimport\s+([\w.]+(?:\.\{[^}]+\}|\.\w+|\._))/gm;
+    let match: RegExpExecArray | null;
+    while ((match = importRegex.exec(content)) !== null) {
+      const full = match[1];
+      // Check for grouped imports: import pkg.{A, B}
+      const braceMatch = full.match(/^([\w.]+)\.\{([^}]+)\}$/);
+      if (braceMatch) {
+        const prefix = braceMatch[1];
+        const items = braceMatch[2].split(",");
+        for (const item of items) {
+          const trimmed = item.trim().split(/\s+/)[0]; // handle "A => B" rename
+          if (trimmed === "_") continue; // wildcard in group
+          imports.push(`${prefix}.${trimmed}`);
+        }
+      } else if (full.endsWith("._")) {
+        // Wildcard import — skip
+        continue;
+      } else {
+        imports.push(full);
+      }
+    }
+    return imports;
+  },
+  resolveImport(importPath, _sourceFile, rootDir, projectFiles) {
+    const segments = importPath.split(".");
+    // Try progressively shorter paths
+    for (let i = segments.length; i > 0; i--) {
+      const filePath = segments.slice(0, i).join("/");
+      for (const ext of [".scala", ".sc"]) {
+        for (const srcRoot of ["", "src/main/scala/", "src/", "app/"]) {
+          const full = join(rootDir, srcRoot, filePath + ext);
+          if (projectFiles.has(full)) return full;
+        }
+      }
+    }
+    return null;
+  },
+  defaultExclude: ["target", "\\.bsp", "\\.metals", "\\.bloop"],
+};
+
 // ─── Registry ────────────────────────────────────────
 const LANGUAGE_CONFIGS: Record<LanguageId, LanguageConfig | null> = {
   javascript: null, // handled by DependencyCruiserEngine
@@ -388,10 +622,13 @@ const LANGUAGE_CONFIGS: Record<LanguageId, LanguageConfig | null> = {
   go,
   java,
   "c-cpp": cCpp,
+  "c-sharp": cSharp,
   ruby,
   php,
   swift,
   kotlin,
+  dart,
+  scala,
 };
 
 export function getLanguageConfig(id: LanguageId): LanguageConfig | null {
