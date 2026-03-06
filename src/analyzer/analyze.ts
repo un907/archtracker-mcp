@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
+import { stat } from "node:fs/promises";
 import type { DependencyGraph } from "../types/schema.js";
-import { DependencyCruiserEngine } from "./engines/dependency-cruiser.js";
 import { RegexEngine } from "./engines/regex-engine.js";
 import { detectLanguage } from "./engines/detect.js";
 import { getLanguageConfig } from "./engines/languages.js";
@@ -12,33 +12,34 @@ export interface AnalyzeOptions {
   exclude?: string[];
   /** Maximum recursion depth (0 = unlimited) */
   maxDepth?: number;
-  /** Path to tsconfig.json (auto-detected if omitted) */
-  tsConfigPath?: string;
-  /** Include type-only imports (import type {...}) — JS/TS only */
-  includeTypeOnly?: boolean;
   /** Target language (auto-detected if omitted) */
   language?: LanguageId;
 }
 
 /**
- * Analyze project dependencies.
- *
- * For JavaScript/TypeScript: uses dependency-cruiser (AST-based).
- * For other languages: uses regex-based import extraction.
- * Language is auto-detected from project marker files if not specified.
+ * Analyze project dependencies using regex-based import extraction.
+ * Supports all 13 languages. Language is auto-detected if not specified.
  */
 export async function analyzeProject(
   rootDir: string,
   options: AnalyzeOptions = {},
 ): Promise<DependencyGraph> {
   const absRootDir = resolve(rootDir);
+
+  // Validate directory exists
+  try {
+    const s = await stat(absRootDir);
+    if (!s.isDirectory()) {
+      throw new AnalyzerError(`Not a directory: ${absRootDir}`);
+    }
+  } catch (error) {
+    if (error instanceof AnalyzerError) throw error;
+    throw new AnalyzerError(`Directory not found: ${absRootDir}`, { cause: error });
+  }
+
   const language = options.language ?? (await detectLanguage(absRootDir));
 
   try {
-    if (language === "javascript") {
-      return await new DependencyCruiserEngine().analyze(absRootDir, options);
-    }
-
     const config = getLanguageConfig(language);
     if (!config) {
       throw new AnalyzerError(`No analyzer config for language: ${language}`);

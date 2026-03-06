@@ -39,7 +39,7 @@ When AI agents modify code, they **miss cascading impacts**:
 
 ## Features
 
-- **Dependency Graph Analysis** — AST-based static analysis via [dependency-cruiser](https://github.com/sverweij/dependency-cruiser)
+- **Dependency Graph Analysis** — Regex-based static analysis for **13 languages** (JS/TS, Python, Rust, Go, Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Dart, Scala)
 - **Interactive Web Viewer** — Force-directed graph, hierarchy diagram, diff view with D3.js
 - **Impact Simulation** — Click any file to visualize transitive dependents (BFS traversal)
 - **Snapshot Diffing** — Save architecture snapshots and detect drift over time
@@ -156,6 +156,7 @@ archtracker ci-setup [options]   Generate GitHub Actions workflow
 Options:
   -t, --target <dir>       Target directory (default: "src")
   -r, --root <dir>         Project root (default: ".")
+  -l, --language <lang>    Target language (auto-detected if omitted)
   -p, --port <number>      Port for web viewer (default: 3000)
   -w, --watch              Watch for file changes and auto-reload
   -e, --exclude <pattern>  Exclude patterns (regex)
@@ -251,7 +252,8 @@ The web viewer also supports language switching via the settings panel.
 ## Requirements
 
 - **Node.js** >= 18.0.0
-- **TypeScript / JavaScript** project (for dependency analysis)
+
+Supported languages: JavaScript/TypeScript, Python, Rust, Go, Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Dart, Scala
 
 ## Contributing
 
@@ -287,7 +289,7 @@ AI エージェントがコードを修正する際、**波及的な影響を見
 
 ## 機能
 
-- **依存関係グラフ分析** — [dependency-cruiser](https://github.com/sverweij/dependency-cruiser) によるAST静的解析
+- **依存関係グラフ分析** — 正規表現ベースの静的解析、**13言語**対応（JS/TS, Python, Rust, Go, Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Dart, Scala）
 - **インタラクティブ Web ビューア** — D3.js による力学モデルグラフ、階層図、差分ビュー
 - **影響シミュレーション** — ファイルをクリックして推移的な被依存ファイルを可視化（BFS探索）
 - **スナップショット差分** — アーキテクチャスナップショットを保存し、ドリフトを検出
@@ -404,6 +406,7 @@ archtracker ci-setup [options]   GitHub Actions ワークフローを生成
 オプション:
   -t, --target <dir>       対象ディレクトリ（デフォルト: "src"）
   -r, --root <dir>         プロジェクトルート（デフォルト: "."）
+  -l, --language <lang>    対象言語（省略時は自動検出）
   -p, --port <number>      Web ビューアのポート（デフォルト: 3000）
   -w, --watch              ファイル変更の監視と自動リロード
   -e, --exclude <pattern>  除外パターン（正規表現）
@@ -479,7 +482,8 @@ Web ビューアでも設定パネルから言語を切り替え可能です。
 ## 動作要件
 
 - **Node.js** >= 18.0.0
-- **TypeScript / JavaScript** プロジェクト（依存関係分析用）
+
+対応言語: JavaScript/TypeScript, Python, Rust, Go, Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Dart, Scala
 
 ## コントリビュート
 

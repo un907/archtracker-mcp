@@ -615,9 +615,62 @@ const scala: LanguageConfig = {
   defaultExclude: ["target", "\\.bsp", "\\.metals", "\\.bloop"],
 };
 
+// ─── JavaScript / TypeScript ──────────────────────────
+const javascript: LanguageConfig = {
+  id: "javascript",
+  extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+  commentStyle: "c-style",
+  importPatterns: [
+    // ES6: import [type] [stuff from] "path"
+    { regex: /import\s+(?:type\s+)?(?:[\w*{}\s,]+\s+from\s+)?["']([^"']+)["']/g },
+    // Dynamic: import("path")
+    { regex: /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g },
+    // Re-export: export [type] { stuff } from "path" / export * from "path"
+    { regex: /export\s+(?:type\s+)?(?:\{[^}]*\}|\*(?:\s+as\s+\w+)?)\s+from\s+["']([^"']+)["']/g },
+    // CommonJS: require("path")
+    { regex: /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g },
+  ],
+  resolveImport(importPath, sourceFile, rootDir, projectFiles) {
+    // Skip external modules: node:, @scope/pkg, bare specifiers without ./ or ../
+    if (importPath.startsWith("node:")) return null;
+    if (!importPath.startsWith(".")) return null;
+
+    // Resolve relative to source file
+    const resolved = resolve(dirname(sourceFile), importPath);
+
+    // 1. Exact match (e.g., "./foo.js" where foo.js actually exists)
+    if (projectFiles.has(resolved)) return resolved;
+
+    // 2. ESM convention: .js → .ts / .tsx (TypeScript emits .js in import paths)
+    if (resolved.endsWith(".js")) {
+      const tsPath = resolved.slice(0, -3) + ".ts";
+      if (projectFiles.has(tsPath)) return tsPath;
+      const tsxPath = resolved.slice(0, -3) + ".tsx";
+      if (projectFiles.has(tsxPath)) return tsxPath;
+    }
+    if (resolved.endsWith(".jsx")) {
+      const tsxPath = resolved.slice(0, -4) + ".tsx";
+      if (projectFiles.has(tsxPath)) return tsxPath;
+    }
+
+    // 3. Try adding extensions
+    for (const ext of [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]) {
+      if (projectFiles.has(resolved + ext)) return resolved + ext;
+    }
+
+    // 4. Try as directory with index file
+    for (const idx of ["/index.ts", "/index.tsx", "/index.js", "/index.jsx"]) {
+      if (projectFiles.has(resolved + idx)) return resolved + idx;
+    }
+
+    return null;
+  },
+  defaultExclude: ["node_modules", "\\.d\\.ts$", "dist", "build", "coverage"],
+};
+
 // ─── Registry ────────────────────────────────────────
 const LANGUAGE_CONFIGS: Record<LanguageId, LanguageConfig | null> = {
-  javascript: null, // handled by DependencyCruiserEngine
+  javascript,
   python,
   rust,
   go,

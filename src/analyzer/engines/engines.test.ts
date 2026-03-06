@@ -616,16 +616,27 @@ describe("Edge deduplication", () => {
 // Backward Compatibility (JS/TS)
 // ═══════════════════════════════════════════════════════
 
-describe("JS/TS backward compatibility", () => {
+describe("JS/TS RegexEngine", () => {
   const dir = join(FIXTURES, "sample-project");
 
-  it("should still use dependency-cruiser for JS/TS", async () => {
+  it("should analyze JS/TS with RegexEngine", async () => {
     const graph = await analyzeProject(dir, {
       exclude: ["circular"],
       language: "javascript",
     });
     expect(graph.totalFiles).toBeGreaterThanOrEqual(3);
     expect(graph.totalEdges).toBeGreaterThanOrEqual(2);
+  });
+
+  it("should detect dependencies (index → utils/greet, utils/math)", async () => {
+    const graph = await analyzeProject(dir, { exclude: ["circular"], language: "javascript" });
+    const indexKey = Object.keys(graph.files).find((f) => f.endsWith("index.ts"));
+    expect(indexKey).toBeDefined();
+    const indexNode = graph.files[indexKey!];
+    // index.ts imports greet.ts and math.ts
+    expect(indexNode.dependencies.length).toBeGreaterThanOrEqual(2);
+    expect(indexNode.dependencies.some((d) => d.includes("greet"))).toBe(true);
+    expect(indexNode.dependencies.some((d) => d.includes("math"))).toBe(true);
   });
 
   it("should auto-detect JS/TS and produce same results", async () => {
@@ -635,7 +646,14 @@ describe("JS/TS backward compatibility", () => {
     expect(auto.totalEdges).toBe(explicit.totalEdges);
   });
 
-  it("should have proper edge types for JS/TS", async () => {
+  it("should detect circular dependencies", async () => {
+    const graph = await analyzeProject(dir, { language: "javascript" });
+    expect(graph.circularDependencies.length).toBeGreaterThanOrEqual(1);
+    const cycleFiles = graph.circularDependencies[0].cycle;
+    expect(cycleFiles.some((f) => f.includes("circular"))).toBe(true);
+  });
+
+  it("should have valid edge types", async () => {
     const graph = await analyzeProject(dir, { exclude: ["circular"], language: "javascript" });
     for (const edge of graph.edges) {
       expect(["static", "dynamic", "type-only"]).toContain(edge.type);

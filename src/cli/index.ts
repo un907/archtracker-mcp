@@ -14,6 +14,10 @@ import { startViewer } from "../web/server.js";
 import { t, setLocale } from "../i18n/index.js";
 import type { Locale } from "../i18n/index.js";
 import { VERSION } from "../utils/version.js";
+import { LANGUAGE_IDS } from "../analyzer/engines/types.js";
+import type { LanguageId } from "../analyzer/engines/types.js";
+
+const VALID_LANGUAGES = LANGUAGE_IDS as readonly string[];
 
 const program = new Command();
 
@@ -42,11 +46,14 @@ program
     "-e, --exclude <patterns...>",
     "Exclude patterns (regex)",
   )
+  .option("-l, --language <lang>", `Target language (${LANGUAGE_IDS.join(", ")})`)
   .action(async (opts) => {
     try {
+      const language = validateLanguage(opts.language);
       console.log(t("cli.analyzing"));
       const graph = await analyzeProject(opts.target, {
         exclude: opts.exclude,
+        language,
       });
 
       const snapshot = await saveSnapshot(opts.root, graph);
@@ -94,11 +101,14 @@ program
   )
   .option("-n, --top <number>", "Number of top components to show", "10")
   .option("--save", "Also save a snapshot after analysis")
+  .option("-l, --language <lang>", `Target language (${LANGUAGE_IDS.join(", ")})`)
   .action(async (opts) => {
     try {
+      const language = validateLanguage(opts.language);
       console.log(t("cli.analyzing"));
       const graph = await analyzeProject(opts.target, {
         exclude: opts.exclude,
+        language,
       });
 
       const report = formatAnalysisReport(graph, { topN: parseInt(opts.top, 10) });
@@ -123,8 +133,10 @@ program
   .option("-t, --target <dir>", "Target directory", "src")
   .option("-r, --root <dir>", "Project root", ".")
   .option("--ci", "CI mode: exit code 1 if affected files exist")
+  .option("-l, --language <lang>", `Target language (${LANGUAGE_IDS.join(", ")})`)
   .action(async (opts) => {
     try {
+      const language = validateLanguage(opts.language);
       const existingSnapshot = await loadSnapshot(opts.root);
 
       if (!existingSnapshot) {
@@ -133,7 +145,7 @@ program
       }
 
       console.log(t("cli.analyzing"));
-      const currentGraph = await analyzeProject(opts.target);
+      const currentGraph = await analyzeProject(opts.target, { language });
       const diff = computeDiff(existingSnapshot.graph, currentGraph);
       const report = formatDiffReport(diff);
 
@@ -159,13 +171,15 @@ program
   .option("-t, --target <dir>", "Target directory", "src")
   .option("-r, --root <dir>", "Project root", ".")
   .option("--json", "Output in JSON format")
+  .option("-l, --language <lang>", `Target language (${LANGUAGE_IDS.join(", ")})`)
   .action(async (opts) => {
     try {
+      const language = validateLanguage(opts.language);
       let snapshot = await loadSnapshot(opts.root);
 
       if (!snapshot) {
         console.log(t("cli.autoGenerating"));
-        const graph = await analyzeProject(opts.target);
+        const graph = await analyzeProject(opts.target, { language });
         snapshot = await saveSnapshot(opts.root, graph);
       }
 
@@ -221,8 +235,10 @@ program
     "Exclude patterns (regex)",
   )
   .option("-w, --watch", "Watch for file changes and auto-reload")
+  .option("-l, --language <lang>", `Target language (${LANGUAGE_IDS.join(", ")})`)
   .action(async (opts) => {
     try {
+      const language = validateLanguage(opts.language);
       console.log(t("web.starting"));
       console.log(t("cli.analyzing"));
 
@@ -232,11 +248,11 @@ program
       const snapshot = await loadSnapshot(opts.root);
       if (snapshot) {
         // Compute diff against current code if snapshot exists
-        const currentGraph = await analyzeProject(opts.target, { exclude: opts.exclude });
+        const currentGraph = await analyzeProject(opts.target, { exclude: opts.exclude, language });
         diff = computeDiff(snapshot.graph, currentGraph);
         graph = currentGraph;
       } else {
-        graph = await analyzeProject(opts.target, { exclude: opts.exclude });
+        graph = await analyzeProject(opts.target, { exclude: opts.exclude, language });
       }
 
       const port = parseInt(opts.port, 10);
@@ -253,7 +269,7 @@ program
           debounce = setTimeout(async () => {
             try {
               console.log(t("web.reloading"));
-              const newGraph = await analyzeProject(opts.target, { exclude: opts.exclude });
+              const newGraph = await analyzeProject(opts.target, { exclude: opts.exclude, language });
               viewer.close();
               startViewer(newGraph, { port });
               console.log(t("web.reloaded"));
@@ -304,6 +320,14 @@ jobs:
   });
 
 // ─── Error handling ─────────────────────────────────────────────
+
+function validateLanguage(lang?: string): LanguageId | undefined {
+  if (!lang) return undefined;
+  if (VALID_LANGUAGES.includes(lang)) return lang as LanguageId;
+  console.error(`Invalid language: ${lang}`);
+  console.error(`Valid languages: ${LANGUAGE_IDS.join(", ")}`);
+  process.exit(1);
+}
 
 function handleError(error: unknown): never {
   if (error instanceof AnalyzerError) {

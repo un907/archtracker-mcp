@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-03-06
+
+### Removed
+
+- **dependency-cruiser**: Completely removed as a dependency — JS/TS analysis now uses the same RegexEngine as all other languages
+- **typescript peerDependency**: No longer required; `npm install` works without TypeScript installed
+- **postinstall script**: No longer needed (was patching dependency-cruiser for Windows + Node.js v22)
+
+### Added
+
+- **JS/TS RegexEngine**: Native regex-based import extraction for JavaScript/TypeScript
+  - ES6 imports (`import { foo } from "./bar"`)
+  - Dynamic imports (`import("./foo")`)
+  - Re-exports (`export { foo } from "./bar"`)
+  - CommonJS requires (`require("./foo")`)
+  - ESM convention support (`.js` → `.ts` resolution)
+  - Index file resolution (`./dir` → `./dir/index.ts`)
+- **`--language` CLI option**: All analysis commands accept `-l, --language <lang>` to override auto-detection
+- **Robustness test suite**: 84 new tests covering post-installation scenarios
+  - CLI validation (invalid language, nonexistent directories, path traversal)
+  - Analyzer edge cases (malformed files, unicode paths, mixed-language projects, deep nesting)
+  - Storage resilience (corrupted JSON, wrong schema, large graphs)
+  - Package integrity (exports, bin, no unnecessary dependencies)
+
+### Changed
+
+- **Unified engine architecture**: All 13 languages now use `RegexEngine` — no more `DependencyCruiserEngine` special case
+- **Zero external runtime dependencies for analysis**: Only `commander` (CLI) and `zod` (validation) remain as production dependencies
+- **Package size reduced**: ~25 MB installed (previously ~80 MB with dependency-cruiser + TypeScript)
+- **Test performance**: Full suite runs in ~1s (previously ~2.6s)
+- **Test suite expanded**: 378+ tests total
+
 ## [0.3.2] - 2026-03-06
 
 ### Changed
@@ -116,6 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security**: Path traversal protection for all file operations
 - **Test suite**: 54 tests (unit + E2E) with Vitest
 
+[0.4.0]: https://github.com/un907/archtracker-mcp/releases/tag/v0.4.0
 [0.3.2]: https://github.com/un907/archtracker-mcp/releases/tag/v0.3.2
 [0.3.1]: https://github.com/un907/archtracker-mcp/releases/tag/v0.3.1
 [0.3.0]: https://github.com/un907/archtracker-mcp/releases/tag/v0.3.0
