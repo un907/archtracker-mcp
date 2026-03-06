@@ -51,6 +51,11 @@ export interface LanguageConfig {
   resolveImport: ImportResolver;
   commentStyle: CommentStyle;
   defaultExclude?: string[];
-  /** Custom import extractor for languages with complex syntax (e.g. Rust grouped use) */
-  extractImports?: (content: string) => string[];
+  /** Custom import extractor for languages with complex syntax (e.g. Rust grouped use, C# class references) */
+  extractImports?: (
+    content: string,
+    filePath: string,
+    rootDir: string,
+    projectFiles: Set<string>,
+  ) => string[];
 }

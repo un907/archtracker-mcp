@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-03-06
+
+### Fixed
+
+- **Python: indented imports now detected** — imports inside `try/except`, `if`, or other indented blocks were silently ignored due to `^` regex anchor; changed to `^\s*` to match any indentation level
+- **C#: same-namespace class references now detected** — classes in the same namespace reference each other without `using` statements; added class-name scanning based on C# file-name convention (class name = file name)
+
 ## [0.4.2] - 2026-03-06
 
 ### Fixed

@@ -241,6 +241,11 @@ describe("Python analyzer", () => {
     expect(hasEdge(graph, "services/api.py", "models/user.py")).toBe(true);
   });
 
+  it("should resolve indented import inside try/except (helpers.py → models/user.py)", async () => {
+    const graph = await analyzeProject(dir, { language: "python" });
+    expect(hasEdge(graph, "helpers.py", "models/user.py")).toBe(true);
+  });
+
   it("should NOT create edges from commented-out imports", async () => {
     const graph = await analyzeProject(dir, { language: "python" });
     // main.py has `# from fake_module import should_not_resolve` and triple-quoted fake imports
@@ -1276,9 +1281,10 @@ describe("C# analyzer", () => {
     const graph = await analyzeProject(dir, { language: "c-sharp" });
     const files = Object.keys(graph.files).sort();
     expect(files).toContain("Program.cs");
+    expect(files).toContain("CrashLogger.cs");
     expect(files).toContain("Services/UserService.cs");
     expect(files).toContain("Models/User.cs");
-    expect(graph.totalFiles).toBe(3);
+    expect(graph.totalFiles).toBe(4);
   });
 
   it("should resolve Program.cs → Services/UserService.cs (using MyApp.Services)", async () => {
@@ -1296,10 +1302,15 @@ describe("C# analyzer", () => {
     expect(hasEdge(graph, "Services/UserService.cs", "Models/User.cs")).toBe(true);
   });
 
+  it("should resolve Program.cs → CrashLogger.cs (same-namespace class reference)", async () => {
+    const graph = await analyzeProject(dir, { language: "c-sharp" });
+    expect(hasEdge(graph, "Program.cs", "CrashLogger.cs")).toBe(true);
+  });
+
   it("should NOT create edges from commented-out using statements", async () => {
     const graph = await analyzeProject(dir, { language: "c-sharp" });
     const progEdges = edgesFrom(graph, "Program.cs");
-    expect(progEdges).toHaveLength(2); // Services and Models only
+    expect(progEdges).toHaveLength(3); // Services, Models, and CrashLogger
     for (const edge of progEdges) {
       expect(edge.target).not.toContain("Fake");
     }

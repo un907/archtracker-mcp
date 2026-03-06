@@ -11,6 +11,7 @@ namespace MyApp
         {
             var service = new UserService();
             service.Run();
+            CrashLogger.Log("started");
         }
     }
 }

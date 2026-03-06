@@ -61,7 +61,7 @@ export class RegexEngine implements AnalyzerEngine {
       }
 
       const stripped = stripComments(content, this.config.commentStyle);
-      const imports = this.extractImports(stripped);
+      const imports = this.extractImports(stripped, filePath, absRootDir, projectFileSet);
       for (const importPath of imports) {
         const resolved = this.config.resolveImport(
           importPath,
@@ -103,10 +103,15 @@ export class RegexEngine implements AnalyzerEngine {
     };
   }
 
-  private extractImports(content: string): string[] {
-    // Use custom extractor if defined (e.g., Rust grouped use)
+  private extractImports(
+    content: string,
+    filePath: string,
+    rootDir: string,
+    projectFiles: Set<string>,
+  ): string[] {
+    // Use custom extractor if defined (e.g., Rust grouped use, C# class refs)
     if (this.config.extractImports) {
-      return this.config.extractImports(content);
+      return this.config.extractImports(content, filePath, rootDir, projectFiles);
     }
 
     const imports: string[] = [];

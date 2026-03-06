@@ -22,3 +22,5 @@ if (hasCommand || hasFlag) {
 } else {
   await import("./mcp/index.js");
 }
+
+export {};

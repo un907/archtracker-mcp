@@ -9,23 +9,24 @@ const python: LanguageConfig = {
   extensions: [".py"],
   commentStyle: "python",
   importPatterns: [
-    // from package.module import something
-    { regex: /^from\s+(\.[\w.]*|\w[\w.]*)\s+import\b/gm },
+    // from package.module import something (including indented, e.g. inside try/except)
+    { regex: /^\s*from\s+(\.[\w.]*|\w[\w.]*)\s+import\b/gm },
     // import package.module (handled by extractImports for multi-module case)
   ],
   // Bug #1 fix: custom extractImports to handle `import a, b, c`
+  // Bug #12 fix: allow leading whitespace to catch try/except indented imports
   extractImports(content: string): string[] {
     const imports: string[] = [];
 
-    // from package.module import something
-    const fromRegex = /^from\s+(\.[\w.]*|\w[\w.]*)\s+import\b/gm;
+    // from package.module import something (including indented)
+    const fromRegex = /^\s*from\s+(\.[\w.]*|\w[\w.]*)\s+import\b/gm;
     let match: RegExpExecArray | null;
     while ((match = fromRegex.exec(content)) !== null) {
       imports.push(match[1]);
     }
 
-    // import a, b, c — captures all comma-separated modules
-    const importRegex = /^import\s+([\w.]+(?:\s*,\s*[\w.]+)*)/gm;
+    // import a, b, c — captures all comma-separated modules (including indented)
+    const importRegex = /^\s*import\s+([\w.]+(?:\s*,\s*[\w.]+)*)/gm;
     while ((match = importRegex.exec(content)) !== null) {
       const modules = match[1].split(",");
       for (const mod of modules) {
@@ -475,17 +476,60 @@ const kotlin: LanguageConfig = {
 };
 
 // ─── C# ──────────────────────────────────────────────
+/** Files that don't define referenceable classes */
+const CS_SKIP_CLASSNAMES = new Set(["AssemblyInfo", "GlobalUsings"]);
+
 const cSharp: LanguageConfig = {
   id: "c-sharp",
   extensions: [".cs"],
   commentStyle: "c-style",
-  importPatterns: [
-    // using Namespace; and using Namespace.SubNamespace;
-    // using static Namespace.Class;
-    // Skip: using Alias = Namespace.Class; (captured but resolved same way)
-    { regex: /^using\s+(?:static\s+)?([\w.]+)\s*;/gm },
-  ],
+  importPatterns: [], // handled by extractImports
+  extractImports(content, filePath, _rootDir, projectFiles) {
+    const imports: string[] = [];
+
+    // 1. using statements (indented, global, static)
+    const usingRegex = /^\s*(?:global\s+)?using\s+(?:static\s+)?([\w.]+)\s*;/gm;
+    let match: RegExpExecArray | null;
+    while ((match = usingRegex.exec(content)) !== null) {
+      imports.push(match[1]);
+    }
+
+    // 2. Class-name reference scanning (same-namespace dependencies)
+    //    C# convention: class name = file name → scan for references
+    const classMap = new Map<string, string>();
+    for (const f of projectFiles) {
+      if (f === filePath) continue;
+      if (!f.endsWith(".cs")) continue;
+      const basename = f.split("/").pop()!;
+      const className = basename.replace(/\.xaml\.cs$/i, "").replace(/\.cs$/i, "");
+      if (!className || CS_SKIP_CLASSNAMES.has(className)) continue;
+      classMap.set(className, f);
+    }
+
+    if (classMap.size > 0) {
+      // Build combined regex for efficient single-pass scanning
+      const escaped = [...classMap.keys()].map((n) =>
+        n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      );
+      const combined = new RegExp(`\\b(${escaped.join("|")})\\b`, "g");
+      const matched = new Set<string>();
+      while ((match = combined.exec(content)) !== null) {
+        const className = match[1];
+        const targetPath = classMap.get(className);
+        if (targetPath && !matched.has(targetPath)) {
+          matched.add(targetPath);
+          imports.push(targetPath); // full path — resolveImport passes through
+        }
+      }
+    }
+
+    return imports;
+  },
   resolveImport(importPath, _sourceFile, rootDir, projectFiles) {
+    // Direct file path (from class name scanning)
+    if (projectFiles.has(importPath)) return importPath;
+
+    // Namespace-based resolution (using statements)
     const segments = importPath.split(".");
 
     // 1. Try as direct file path (progressively shorter, like Java static imports)
