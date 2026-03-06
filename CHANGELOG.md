@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-03-06
+
+### Added
+
+- **Multi-language support**: Dependency analysis for 10 languages
+  - JavaScript/TypeScript (via dependency-cruiser, unchanged)
+  - Python (`from/import` statements, relative imports, `__init__.py` resolution)
+  - Rust (`use crate::`, `mod` declarations, `mod.rs` resolution)
+  - Go (`import` with `go.mod` module prefix stripping)
+  - Java (`import` with `src/main/java/` resolution)
+  - C/C++ (`#include "..."` with source-relative and include-dir resolution)
+  - Ruby (`require_relative`, `require` with `lib/` fallback)
+  - PHP (`require/include`, PSR-4 `use` namespace resolution)
+  - Swift (`import` with SPM `Sources/` convention)
+  - Kotlin (`import` with Gradle source root resolution)
+- **Language auto-detection**: Marker file detection (Cargo.toml, go.mod, pyproject.toml, etc.) with extension frequency fallback
+- **Pluggable engine architecture**: `AnalyzerEngine` interface with `DependencyCruiserEngine` (JS/TS) and `RegexEngine` (all others)
+- **DFS cycle detection**: Custom circular dependency detection for non-JS/TS languages
+- **`language` parameter**: All MCP tools and `analyzeProject()` accept optional `language` override
+- **Test suite expanded**: 86 tests (32 new multi-language tests)
+
 ## [0.1.1] - 2026-03-06
 
 ### Fixed
@@ -33,5 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security**: Path traversal protection for all file operations
 - **Test suite**: 54 tests (unit + E2E) with Vitest
 
+[0.2.0]: https://github.com/un907/archtracker-mcp/releases/tag/v0.2.0
 [0.1.1]: https://github.com/un907/archtracker-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/un907/archtracker-mcp/releases/tag/v0.1.0

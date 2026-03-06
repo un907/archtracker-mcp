@@ -1,6 +1,6 @@
 {
   "name": "archtracker-mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Architecture & Dependency Tracker — MCP server + CLI + interactive web viewer for AI-driven development",
   "type": "module",
   "main": "dist/index.js",
@@ -46,7 +46,17 @@
     "devtools",
     "architecture-drift",
     "impact-analysis",
-    "code-quality"
+    "code-quality",
+    "multi-language",
+    "python",
+    "rust",
+    "golang",
+    "java",
+    "kotlin",
+    "swift",
+    "ruby",
+    "php",
+    "cpp"
   ],
   "author": "un907",
   "license": "MIT",

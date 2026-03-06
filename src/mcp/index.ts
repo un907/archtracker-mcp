@@ -23,14 +23,14 @@ import { t } from "../i18n/index.js";
 
 const server = new McpServer({
   name: "archtracker",
-  version: "0.1.0",
+  version: "0.2.0",
 });
 
 // ─── Tool 1: generate_map ───────────────────────────────────────
 
 server.tool(
   "generate_map",
-  "Analyze dependency graph of a directory and return file import/export structure as JSON",
+  "Analyze dependency graph of a directory and return file import/export structure as JSON. Supports JS/TS, Python, Rust, Go, Java, C/C++, Ruby, PHP, Swift, Kotlin.",
   {
     targetDir: z
       .string()
@@ -46,11 +46,15 @@ server.tool(
       .min(0)
       .optional()
       .describe("Max analysis depth (0 = unlimited)"),
+    language: z
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .optional()
+      .describe("Target language (auto-detected if omitted)"),
   },
-  async ({ targetDir, exclude, maxDepth }) => {
+  async ({ targetDir, exclude, maxDepth, language }) => {
     try {
       validatePath(targetDir);
-      const graph = await analyzeProject(targetDir, { exclude, maxDepth });
+      const graph = await analyzeProject(targetDir, { exclude, maxDepth, language });
 
       const summary = [
         t("mcp.analyzeComplete", { files: graph.totalFiles, edges: graph.totalEdges }),
@@ -75,7 +79,7 @@ server.tool(
 
 server.tool(
   "analyze_existing_architecture",
-  "Comprehensive architecture analysis for existing projects. Shows critical components, circular dependencies, orphan files, coupling hotspots, and directory breakdown.",
+  "Comprehensive architecture analysis for existing projects. Shows critical components, circular dependencies, orphan files, coupling hotspots, and directory breakdown. Supports 10 languages.",
   {
     targetDir: z
       .string()
@@ -100,11 +104,15 @@ server.tool(
       .string()
       .default(".")
       .describe("Project root (needed only when saveSnapshot is true)"),
+    language: z
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .optional()
+      .describe("Target language (auto-detected if omitted)"),
   },
-  async ({ targetDir, exclude, topN, saveSnapshot: doSave, projectRoot }) => {
+  async ({ targetDir, exclude, topN, saveSnapshot: doSave, projectRoot, language }) => {
     try {
       validatePath(targetDir);
-      const graph = await analyzeProject(targetDir, { exclude });
+      const graph = await analyzeProject(targetDir, { exclude, language });
       const report = formatAnalysisReport(graph, { topN: topN ?? 10 });
 
       const content: { type: "text"; text: string }[] = [
@@ -138,12 +146,16 @@ server.tool(
       .string()
       .default(".")
       .describe("Project root (where .archtracker is placed)"),
+    language: z
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .optional()
+      .describe("Target language (auto-detected if omitted)"),
   },
-  async ({ targetDir, projectRoot }) => {
+  async ({ targetDir, projectRoot, language }) => {
     try {
       validatePath(targetDir);
       validatePath(projectRoot);
-      const graph = await analyzeProject(targetDir);
+      const graph = await analyzeProject(targetDir, { language });
       const snapshot = await saveSnapshot(projectRoot, graph);
 
       // Top 5 most-depended-on files
@@ -183,8 +195,12 @@ server.tool(
       .string()
       .default(".")
       .describe("Project root (where .archtracker is placed)"),
+    language: z
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .optional()
+      .describe("Target language (auto-detected if omitted)"),
   },
-  async ({ targetDir, projectRoot }) => {
+  async ({ targetDir, projectRoot, language }) => {
     try {
       validatePath(targetDir);
       validatePath(projectRoot);
@@ -192,7 +208,7 @@ server.tool(
 
       if (!existingSnapshot) {
         // Auto-generate initial snapshot
-        const graph = await analyzeProject(targetDir);
+        const graph = await analyzeProject(targetDir, { language });
         await saveSnapshot(projectRoot, graph);
         return {
           content: [
@@ -208,7 +224,7 @@ server.tool(
         };
       }
 
-      const currentGraph = await analyzeProject(targetDir);
+      const currentGraph = await analyzeProject(targetDir, { language });
       const diff = computeDiff(existingSnapshot.graph, currentGraph);
       const report = formatDiffReport(diff);
 
@@ -233,14 +249,18 @@ server.tool(
       .string()
       .default(".")
       .describe("Project root"),
+    language: z
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .optional()
+      .describe("Target language (auto-detected if omitted)"),
   },
-  async ({ targetDir, projectRoot }) => {
+  async ({ targetDir, projectRoot, language }) => {
     try {
       let snapshot = await loadSnapshot(projectRoot);
 
       // Auto-generate if no snapshot exists
       if (!snapshot) {
-        const graph = await analyzeProject(targetDir);
+        const graph = await analyzeProject(targetDir, { language });
         snapshot = await saveSnapshot(projectRoot, graph);
       }
 
@@ -327,15 +347,19 @@ server.tool(
       .max(50)
       .optional()
       .describe("Max results (default: 10)"),
+    language: z
+      .enum(["javascript", "python", "rust", "go", "java", "c-cpp", "ruby", "php", "swift", "kotlin"])
+      .optional()
+      .describe("Target language (auto-detected if omitted)"),
   },
-  async ({ query, mode, targetDir, projectRoot, limit }) => {
+  async ({ query, mode, targetDir, projectRoot, limit, language }) => {
     try {
       validatePath(targetDir);
       validatePath(projectRoot);
       // Use existing snapshot or generate fresh
       let snapshot = await loadSnapshot(projectRoot);
       if (!snapshot) {
-        const graph = await analyzeProject(targetDir);
+        const graph = await analyzeProject(targetDir, { language });
         snapshot = await saveSnapshot(projectRoot, graph);
       }
 
