@@ -30,10 +30,20 @@ export type ImportResolver = (
   projectFiles: Set<string>,
 ) => string | null;
 
+export type CommentStyle =
+  | "c-style"       // // and /* */
+  | "hash"          // #
+  | "python"        // # and """ / '''
+  | "ruby"          // # and =begin/=end
+  | "php";          // //, /* */, and #
+
 export interface LanguageConfig {
   id: LanguageId;
   extensions: string[];
   importPatterns: ImportPattern[];
   resolveImport: ImportResolver;
+  commentStyle: CommentStyle;
   defaultExclude?: string[];
+  /** Custom import extractor for languages with complex syntax (e.g. Rust grouped use) */
+  extractImports?: (content: string) => string[];
 }

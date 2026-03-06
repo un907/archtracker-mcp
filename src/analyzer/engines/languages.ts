@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import type { LanguageConfig, LanguageId } from "./types.js";
 
@@ -5,6 +6,7 @@ import type { LanguageConfig, LanguageId } from "./types.js";
 const python: LanguageConfig = {
   id: "python",
   extensions: [".py"],
+  commentStyle: "python",
   importPatterns: [
     // from package.module import something
     { regex: /^from\s+(\.[\w.]*|\w[\w.]*)\s+import\b/gm },
@@ -39,12 +41,27 @@ function tryPythonResolve(base: string, projectFiles: Set<string>): string | nul
 const rust: LanguageConfig = {
   id: "rust",
   extensions: [".rs"],
-  importPatterns: [
-    // use crate::module::item;
-    { regex: /\buse\s+crate::(\w[\w:]*)/gm },
-    // mod child;
-    { regex: /\bmod\s+(\w+)\s*;/gm },
-  ],
+  commentStyle: "c-style",
+  importPatterns: [], // handled by extractImports
+  extractImports(content: string): string[] {
+    const imports: string[] = [];
+
+    // mod declarations: mod child;
+    const modRegex = /\bmod\s+(\w+)\s*;/gm;
+    let match: RegExpExecArray | null;
+    while ((match = modRegex.exec(content)) !== null) {
+      imports.push(match[1]);
+    }
+
+    // use crate::... (simple and grouped)
+    const useRegex = /\buse\s+crate::([\s\S]*?);/gm;
+    while ((match = useRegex.exec(content)) !== null) {
+      const body = match[1].trim();
+      extractRustUsePaths(body, "", imports);
+    }
+
+    return imports;
+  },
   resolveImport(importPath, sourceFile, rootDir, projectFiles) {
     const srcDir = join(rootDir, "src");
 
@@ -73,16 +90,106 @@ const rust: LanguageConfig = {
   defaultExclude: ["target"],
 };
 
+/**
+ * Recursively extract Rust use paths, handling grouped imports.
+ * e.g. "foo::{bar, baz::qux}" → ["foo::bar", "foo::baz::qux"]
+ * e.g. "foo::bar" → ["foo::bar"]
+ */
+function extractRustUsePaths(body: string, prefix: string, results: string[]): void {
+  const trimmed = body.trim();
+
+  // Check for grouped import: path::{...}
+  const braceStart = trimmed.indexOf("{");
+  if (braceStart === -1) {
+    // Simple path like "foo::bar::Baz" or just "foo"
+    const path = prefix ? `${prefix}::${trimmed}` : trimmed;
+    // Remove trailing items after last :: that aren't module names
+    // Keep the full path — resolver handles progressively shorter prefixes
+    if (path && !path.includes("{")) {
+      results.push(path);
+    }
+    return;
+  }
+
+  // Extract the prefix before the brace
+  let pathPrefix = trimmed.slice(0, braceStart).trim();
+  if (pathPrefix.endsWith("::")) {
+    pathPrefix = pathPrefix.slice(0, -2);
+  }
+  const fullPrefix = prefix ? `${prefix}::${pathPrefix}` : pathPrefix;
+
+  // Find matching closing brace
+  let depth = 0;
+  let braceEnd = -1;
+  for (let i = braceStart; i < trimmed.length; i++) {
+    if (trimmed[i] === "{") depth++;
+    else if (trimmed[i] === "}") {
+      depth--;
+      if (depth === 0) { braceEnd = i; break; }
+    }
+  }
+  if (braceEnd === -1) return;
+
+  // Split the brace content by commas (respecting nested braces)
+  const inner = trimmed.slice(braceStart + 1, braceEnd).trim();
+  const items = splitByTopLevelComma(inner);
+
+  for (const item of items) {
+    const cleaned = item.trim();
+    if (cleaned === "self") {
+      results.push(fullPrefix);
+    } else if (cleaned) {
+      extractRustUsePaths(cleaned, fullPrefix, results);
+    }
+  }
+}
+
+/** Split string by commas, respecting nested braces */
+function splitByTopLevelComma(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "{") depth++;
+    else if (s[i] === "}") depth--;
+    else if (s[i] === "," && depth === 0) {
+      parts.push(s.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(s.slice(start));
+  return parts;
+}
+
 // ─── Go ──────────────────────────────────────────────
 const go: LanguageConfig = {
   id: "go",
   extensions: [".go"],
-  importPatterns: [
-    // import "path" or import ( "path" )
-    { regex: /\bimport\s+(?:\w+\s+)?"([^"]+)"/gm },
-    // import block entries
-    { regex: /^\s+(?:\w+\s+)?"([^"]+)"/gm },
-  ],
+  commentStyle: "c-style",
+  importPatterns: [], // handled by extractImports
+  extractImports(content: string): string[] {
+    const imports: string[] = [];
+
+    // Single import: import "path" or import alias "path"
+    const singleRegex = /\bimport\s+(?:\w+\s+)?"([^"]+)"/gm;
+    let match: RegExpExecArray | null;
+    while ((match = singleRegex.exec(content)) !== null) {
+      imports.push(match[1]);
+    }
+
+    // Import block: import ( ... )
+    const blockRegex = /\bimport\s*\(([^)]*)\)/gms;
+    while ((match = blockRegex.exec(content)) !== null) {
+      const block = match[1];
+      const entryRegex = /(?:\w+\s+)?"([^"]+)"/g;
+      let entry: RegExpExecArray | null;
+      while ((entry = entryRegex.exec(block)) !== null) {
+        imports.push(entry[1]);
+      }
+    }
+
+    return imports;
+  },
   resolveImport(importPath, _sourceFile, rootDir, projectFiles) {
     // Only resolve project-internal imports
     // Read go.mod module path to strip prefix
@@ -105,8 +212,7 @@ const goModCache = new Map<string, string | null>();
 function goModulePrefix(rootDir: string): string | null {
   if (goModCache.has(rootDir)) return goModCache.get(rootDir)!;
   try {
-    const fs = require("node:fs");
-    const content = fs.readFileSync(join(rootDir, "go.mod"), "utf-8");
+    const content = readFileSync(join(rootDir, "go.mod"), "utf-8");
     const match = content.match(/^module\s+(.+)$/m);
     const prefix = match ? match[1].trim() : null;
     goModCache.set(rootDir, prefix);
@@ -121,6 +227,7 @@ function goModulePrefix(rootDir: string): string | null {
 const java: LanguageConfig = {
   id: "java",
   extensions: [".java"],
+  commentStyle: "c-style",
   importPatterns: [
     // import com.example.ClassName;
     { regex: /^import\s+(?:static\s+)?([\w.]+);/gm },
@@ -142,6 +249,7 @@ const java: LanguageConfig = {
 const cCpp: LanguageConfig = {
   id: "c-cpp",
   extensions: [".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"],
+  commentStyle: "c-style",
   importPatterns: [
     // #include "file.h" (skip <system> includes)
     { regex: /^#include\s+"([^"]+)"/gm },
@@ -167,6 +275,7 @@ const cCpp: LanguageConfig = {
 const ruby: LanguageConfig = {
   id: "ruby",
   extensions: [".rb"],
+  commentStyle: "ruby",
   importPatterns: [
     // require_relative 'path'
     { regex: /\brequire_relative\s+['"]([^'"]+)['"]/gm },
@@ -192,6 +301,7 @@ const ruby: LanguageConfig = {
 const php: LanguageConfig = {
   id: "php",
   extensions: [".php"],
+  commentStyle: "php",
   importPatterns: [
     // require/include/require_once/include_once 'path'
     { regex: /\b(?:require|include)(?:_once)?\s+['"]([^'"]+)['"]/gm },
@@ -223,14 +333,15 @@ const php: LanguageConfig = {
 const swift: LanguageConfig = {
   id: "swift",
   extensions: [".swift"],
+  commentStyle: "c-style",
   importPatterns: [
-    // import ModuleName
-    { regex: /^import\s+(?:class|struct|enum|protocol|func|var|let|typealias)?\s*(\w+)/gm },
+    // import ModuleName (for cross-module dependencies)
+    { regex: /^import\s+(?:class\s+|struct\s+|enum\s+|protocol\s+|func\s+|var\s+|let\s+|typealias\s+)?(\w+)/gm },
   ],
-  resolveImport(importPath, _sourceFile, rootDir, projectFiles) {
-    // Swift imports are module-level; try to find a matching source directory
-    // Check Sources/ModuleName/ pattern (SPM convention)
+  resolveImport(importPath, sourceFile, rootDir, projectFiles) {
+    // Cross-module: import Module → find Sources/Module/*.swift
     const spmDir = join(rootDir, "Sources", importPath);
+    // Return the first .swift file in the target module directory
     for (const f of projectFiles) {
       if (f.startsWith(spmDir + "/") && f.endsWith(".swift")) return f;
     }
@@ -243,6 +354,7 @@ const swift: LanguageConfig = {
 const kotlin: LanguageConfig = {
   id: "kotlin",
   extensions: [".kt", ".kts"],
+  commentStyle: "c-style",
   importPatterns: [
     // import com.example.ClassName
     { regex: /^import\s+([\w.]+)/gm },

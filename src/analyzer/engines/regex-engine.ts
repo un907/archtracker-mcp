@@ -7,6 +7,7 @@ import type {
 } from "../../types/schema.js";
 import type { AnalyzerEngine, LanguageConfig } from "./types.js";
 import { detectCycles } from "./cycle.js";
+import { stripComments } from "./strip-comments.js";
 
 export class RegexEngine implements AnalyzerEngine {
   constructor(private config: LanguageConfig) {}
@@ -34,6 +35,7 @@ export class RegexEngine implements AnalyzerEngine {
     // 2. Extract imports and resolve edges
     const files: Record<string, FileNode> = {};
     const edges: DependencyEdge[] = [];
+    const edgeSet = new Set<string>(); // "source\0target" for dedup
 
     // Initialize all file nodes
     for (const filePath of projectFiles) {
@@ -56,7 +58,8 @@ export class RegexEngine implements AnalyzerEngine {
         continue;
       }
 
-      const imports = this.extractImports(content);
+      const stripped = stripComments(content, this.config.commentStyle);
+      const imports = this.extractImports(stripped);
       for (const importPath of imports) {
         const resolved = this.config.resolveImport(
           importPath,
@@ -68,6 +71,11 @@ export class RegexEngine implements AnalyzerEngine {
 
         const relTarget = relative(absRootDir, resolved);
         if (!files[relTarget]) continue; // skip external
+        if (relSource === relTarget) continue; // skip self-import
+
+        const edgeKey = `${relSource}\0${relTarget}`;
+        if (edgeSet.has(edgeKey)) continue; // deduplicate
+        edgeSet.add(edgeKey);
 
         edges.push({
           source: relSource,
@@ -94,6 +102,11 @@ export class RegexEngine implements AnalyzerEngine {
   }
 
   private extractImports(content: string): string[] {
+    // Use custom extractor if defined (e.g., Rust grouped use)
+    if (this.config.extractImports) {
+      return this.config.extractImports(content);
+    }
+
     const imports: string[] = [];
     for (const pattern of this.config.importPatterns) {
       // Reset regex state
