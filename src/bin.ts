@@ -10,7 +10,7 @@
  *   npx archtracker-mcp analyze --target src      → Analysis report (CLI mode)
  */
 
-const CLI_COMMANDS = ["init", "analyze", "check", "context", "serve", "ci-setup", "help"];
+const CLI_COMMANDS = ["init", "analyze", "check", "context", "serve", "ci-setup", "layers", "help"];
 const CLI_FLAGS = ["--help", "-h", "--version", "-V"];
 
 const args = process.argv.slice(2);

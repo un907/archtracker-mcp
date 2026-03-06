@@ -1,7 +1,7 @@
 import { mkdir, writeFile, readFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { ArchSnapshot } from "../types/schema.js";
+import type { ArchSnapshot, MultiLayerGraph } from "../types/schema.js";
 import { SCHEMA_VERSION } from "../types/schema.js";
 import type { DependencyGraph } from "../types/schema.js";
 import { t } from "../i18n/index.js";
@@ -31,7 +31,7 @@ const DependencyGraphSchema = z.object({
 });
 
 const SnapshotSchema = z.object({
-  version: z.literal(SCHEMA_VERSION),
+  version: z.enum([SCHEMA_VERSION, "1.0"]),
   timestamp: z.string(),
   rootDir: z.string(),
   graph: DependencyGraphSchema,
@@ -46,6 +46,7 @@ const SnapshotSchema = z.object({
 export async function saveSnapshot(
   projectRoot: string,
   graph: DependencyGraph,
+  multiLayer?: MultiLayerGraph,
 ): Promise<ArchSnapshot> {
   const dirPath = join(projectRoot, ARCHTRACKER_DIR);
   const filePath = join(dirPath, SNAPSHOT_FILE);
@@ -55,6 +56,7 @@ export async function saveSnapshot(
     timestamp: new Date().toISOString(),
     rootDir: graph.rootDir,
     graph,
+    ...(multiLayer ? { multiLayer } : {}),
   };
 
   await mkdir(dirPath, { recursive: true });

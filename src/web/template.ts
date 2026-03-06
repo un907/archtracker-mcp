@@ -1,10 +1,13 @@
-import type { DependencyGraph } from "../types/schema.js";
+import type { DependencyGraph, LayerMetadata } from "../types/schema.js";
 import type { ArchDiff } from "../types/schema.js";
 import type { Locale } from "../i18n/index.js";
+import type { CrossLayerConnection } from "../types/layers.js";
 
 export interface ViewerOptions {
   locale?: Locale;
   diff?: ArchDiff | null;
+  layerMetadata?: LayerMetadata[];
+  crossLayerEdges?: CrossLayerConnection[];
 }
 
 /**
@@ -14,6 +17,8 @@ export interface ViewerOptions {
 export function buildGraphPage(graph: DependencyGraph, options: ViewerOptions = {}): string {
   const locale = options.locale ?? "en";
   const diff = options.diff ?? null;
+  const layers = options.layerMetadata ?? null;
+  const crossEdges = options.crossLayerEdges ?? null;
   const files = Object.values(graph.files);
   const nodes = files.map((f) => ({
     id: f.path,
@@ -23,6 +28,7 @@ export function buildGraphPage(graph: DependencyGraph, options: ViewerOptions = 
     dependentsList: f.dependents,
     isOrphan: f.dependencies.length === 0 && f.dependents.length === 0,
     dir: f.path.includes("/") ? f.path.substring(0, f.path.lastIndexOf("/")) : ".",
+    layer: layers && f.path.includes("/") ? f.path.substring(0, f.path.indexOf("/")) : null,
   }));
 
   const links = graph.edges.map((e) => ({
@@ -39,6 +45,8 @@ export function buildGraphPage(graph: DependencyGraph, options: ViewerOptions = 
   const dirs = [...new Set(nodes.map((n) => n.dir))].sort();
   const projectName = graph.rootDir.split("/").filter(Boolean).pop() || "Project";
   const diffData = diff ? JSON.stringify(diff) : "null";
+  const layersData = layers ? JSON.stringify(layers) : "null";
+  const crossEdgesData = crossEdges ? JSON.stringify(crossEdges) : "null";
   const graphData = JSON.stringify({ nodes, links, circularFiles: [...circularFiles], dirs, projectName });
 
   return /* html */ `<!DOCTYPE html>
@@ -102,13 +110,25 @@ kbd { background: #21262d; border: 1px solid var(--border); border-radius: 3px; 
 #tooltip .tt-out { color: var(--accent); }
 #tooltip .tt-in { color: var(--green); }
 
-/* ─── Filters ─────────────────────────────── */
-#filters { position: absolute; bottom: 12px; left: 12px; right: 120px; z-index: 10; display: flex; flex-wrap: wrap; gap: 5px; }
-.filter-pill { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 3px 10px; font-size: 11px; cursor: pointer; user-select: none; transition: all 0.15s; display: flex; align-items: center; gap: 5px; }
+/* ─── Filter bar ──────────────────────────── */
+#filter-bar { position: absolute; bottom: 12px; left: 12px; right: 120px; z-index: 10; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+#filter-bar > * { pointer-events: auto; }
+#filter-layer-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+#filter-dir-toggle { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 3px 10px; font-size: 11px; cursor: pointer; user-select: none; color: var(--text-dim); transition: all 0.15s; flex-shrink: 0; }
+#filter-dir-toggle:hover { border-color: var(--text-dim); color: var(--text); }
+#filter-dir-toggle.open { border-color: var(--accent); color: var(--text); }
+#filter-dir-panel { display: none; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; max-height: 220px; overflow-y: auto; backdrop-filter: blur(8px); }
+#filter-dir-panel.open { display: block; }
+.dir-group { margin-bottom: 8px; }
+.dir-group:last-child { margin-bottom: 0; }
+.dir-group-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+.dir-group-label .dg-dot { width: 6px; height: 6px; border-radius: 50%; }
+.dir-group-pills { display: flex; flex-wrap: wrap; gap: 3px; }
+.filter-pill { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 2px 8px; font-size: 10px; cursor: pointer; user-select: none; transition: all 0.15s; display: flex; align-items: center; gap: 4px; }
 .filter-pill:hover { border-color: var(--text-dim); }
 .filter-pill.active { border-color: var(--accent); }
-.filter-pill .pill-dot { width: 6px; height: 6px; border-radius: 50%; }
-.filter-pill .pill-count { color: var(--text-muted); font-size: 10px; }
+.filter-pill .pill-dot { width: 5px; height: 5px; border-radius: 50%; }
+.filter-pill .pill-count { color: var(--text-muted); font-size: 9px; }
 
 /* ─── Zoom controls ───────────────────────── */
 #zoom-ctrl { position: absolute; bottom: 52px; right: 12px; z-index: 10; display: flex; flex-direction: column; gap: 2px; }
@@ -167,6 +187,24 @@ kbd { background: #21262d; border: 1px solid var(--border); border-radius: 3px; 
 
 /* ─── Help bar ─────────────────────────────── */
 #help-bar { position: absolute; bottom: 12px; right: 12px; z-index: 10; font-size: 11px; color: var(--text-muted); background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; transition: background 0.3s; }
+
+/* ─── Layer hulls ─────────────────────────── */
+.layer-hull { fill-opacity: 0.06; stroke-width: 1.5; stroke-dasharray: 6,4; pointer-events: none; }
+.layer-hull-label { font-size: 13px; font-weight: 700; letter-spacing: 0.5px; pointer-events: none; opacity: 0.7; }
+
+/* ─── Layer tabs ──────────────────────────── */
+#layer-tabs { display: flex; gap: 2px; margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--border); }
+.layer-tab { padding: 4px 10px; font-size: 11px; color: var(--text-dim); cursor: pointer; border-radius: 4px; border: 1px solid transparent; transition: all 0.15s; user-select: none; display: flex; align-items: center; gap: 5px; }
+.layer-tab:hover { color: var(--text); background: var(--bg-hover); }
+.layer-tab.active { border-color: var(--accent); color: var(--text); }
+.layer-tab .lt-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+/* ─── Layer filter pills ─────────────────── */
+.layer-pill { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 2px 9px; font-size: 11px; font-weight: 600; cursor: pointer; user-select: none; transition: all 0.15s; display: flex; align-items: center; gap: 5px; }
+.layer-pill:hover { border-color: var(--text-dim); }
+.layer-pill.active { border-color: var(--accent); }
+.layer-pill .lp-dot { width: 6px; height: 6px; border-radius: 50%; }
+.layer-pill .lp-count { color: var(--text-muted); font-size: 9px; font-weight: 400; }
 </style>
 </head>
 <body>
@@ -177,6 +215,7 @@ kbd { background: #21262d; border: 1px solid var(--border); border-radius: 3px; 
   <div class="tab active" data-view="graph-view" data-i18n="tab.graph">Graph</div>
   <div class="tab" data-view="hier-view" data-i18n="tab.hierarchy">Hierarchy</div>
   <div class="tab" data-view="diff-view" id="diff-tab" style="display:none" data-i18n="tab.diff">Diff</div>
+  <div id="layer-tabs"></div>
   <div class="tab-right">
     <div class="tab-stats">
       <span><span data-i18n="stats.files">Files</span> <b id="s-files">0</b></span>
@@ -243,6 +282,7 @@ kbd { background: #21262d; border: 1px solid var(--border); border-radius: 3px; 
       <kbd>/</kbd>
     </div>
     <div class="hud-panel" id="legend-panel">
+      <div id="layer-legend"></div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> <span data-i18n="legend.circular">Circular dep</span></div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--text-muted)"></div> <span data-i18n="legend.orphan">Orphan</span></div>
       <div class="legend-item"><div class="legend-dot" style="border:2px solid var(--yellow);width:6px;height:6px"></div> <span data-i18n="legend.highCoupling">High coupling</span></div>
@@ -256,6 +296,7 @@ kbd { background: #21262d; border: 1px solid var(--border); border-radius: 3px; 
     <div class="detail-section"><h4 data-i18n="detail.importedBy">Imported by</h4><ul class="detail-list" id="d-dependents"></ul></div>
     <div class="detail-section"><h4 data-i18n="detail.imports">Imports</h4><ul class="detail-list" id="d-deps"></ul></div>
   </div>
+  <div id="layer-filters" style="position:absolute;bottom:40px;left:12px;right:120px;z-index:10;display:flex;flex-wrap:wrap;gap:5px;"></div>
   <div id="filters"></div>
   <div id="zoom-ctrl">
     <button onclick="zoomIn()" title="Zoom in">+</button>
@@ -460,6 +501,8 @@ window.exportPNG = () => {
 // DATA
 // ═══════════════════════════════════════════════
 const DATA = ${graphData};
+const LAYERS = ${layersData};
+const CROSS_EDGES = ${crossEdgesData};
 const W = window.innerWidth, H = window.innerHeight - 44;
 const circularSet = new Set(DATA.circularFiles);
 
@@ -489,9 +532,19 @@ document.getElementById('s-circular').textContent = DATA.circularFiles.length;
 const dirColor = d3.scaleOrdinal()
   .domain(DATA.dirs)
   .range(['#58a6ff','#3fb950','#d2a8ff','#f0883e','#79c0ff','#56d4dd','#db61a2','#f778ba','#ffa657','#7ee787']);
+
+// Layer color map (from LAYERS metadata)
+const layerColorMap = {};
+let activeLayerFilter = null; // null = "All Layers" — declared early for nodeColor access
+if (LAYERS) {
+  LAYERS.forEach(l => { layerColorMap[l.name] = l.color; });
+}
+
 function nodeColor(d) {
   if (circularSet.has(d.id)) return '#f97583';
   if (d.isOrphan) return '#484f58';
+  // In single-layer view, use directory-based coloring (traditional style)
+  if (LAYERS && d.layer && layerColorMap[d.layer] && !activeLayerFilter) return layerColorMap[d.layer];
   return dirColor(d.dir);
 }
 function nodeRadius(d) { return Math.max(5, Math.min(22, 4 + d.dependents * 1.8)); }
@@ -598,6 +651,33 @@ const link = g.append('g').selectAll('line').data(DATA.links).join('line')
   .attr('marker-end','url(#arrow-0)')
   .attr('opacity', baseLinkOpacity);
 
+// Cross-layer links (from layers.json connections)
+defs.append('marker').attr('id','arrow-cross').attr('viewBox','0 -4 8 8')
+  .attr('refX',8).attr('refY',0).attr('markerWidth',7).attr('markerHeight',7).attr('orient','auto')
+  .append('path').attr('d','M0,-3.5L8,0L0,3.5Z').attr('fill','#f0883e');
+
+const crossLinkData = (CROSS_EDGES || []).map(e => ({
+  source: e.fromLayer + '/' + e.fromFile,
+  target: e.toLayer + '/' + e.toFile,
+  type: e.type || 'api-call',
+  label: e.label || e.type || '',
+})).filter(e => DATA.nodes.some(n => n.id === e.source) && DATA.nodes.some(n => n.id === e.target));
+
+const crossLinkG = g.append('g');
+const crossLink = crossLinkG.selectAll('line').data(crossLinkData).join('line')
+  .attr('stroke', '#f0883e')
+  .attr('stroke-width', 2)
+  .attr('stroke-dasharray', '8,4')
+  .attr('marker-end', 'url(#arrow-cross)')
+  .attr('opacity', 0.7);
+const crossLabel = crossLinkG.selectAll('text').data(crossLinkData).join('text')
+  .text(d => d.label)
+  .attr('font-size', 9)
+  .attr('fill', '#f0883e')
+  .attr('text-anchor', 'middle')
+  .attr('opacity', 0.8)
+  .attr('pointer-events', 'none');
+
 // Nodes
 const node = g.append('g').selectAll('g').data(DATA.nodes).join('g')
   .attr('cursor','pointer')
@@ -639,6 +719,283 @@ const simulation = d3.forceSimulation(DATA.nodes)
     });
     node.attr('transform', d=>\`translate(\${d.x},\${d.y})\`);
   });
+
+// ─── Layer convex hulls ─────────────────────
+let hullGroup = null;
+const activeLayers = new Set(LAYERS ? LAYERS.map(l => l.name) : []);
+var applyLayerFilter = null; // hoisted for dir-filter integration
+
+if (LAYERS && LAYERS.length > 0) {
+  // ─── Water droplet physics: intra-layer cohesion + inter-layer separation ───
+  const layerCenters = {};
+  const layerCount = LAYERS.length;
+  // Compact layout: layers are close together like water droplets
+  const baseRadius = Math.max(60, Math.min(W, H) * 0.04 * Math.sqrt(layerCount));
+  LAYERS.forEach((l, idx) => {
+    const angle = (2 * Math.PI * idx) / layerCount - Math.PI / 2;
+    layerCenters[l.name] = { x: Math.cos(angle) * baseRadius, y: Math.sin(angle) * baseRadius };
+  });
+
+  // Replace default centering forces with per-layer positioning
+  simulation.force('x', null).force('y', null).force('center', null);
+  simulation.force('layerX', d3.forceX(d => layerCenters[d.layer]?.x || 0).strength(d => d.layer ? 0.12 : 0.03));
+  simulation.force('layerY', d3.forceY(d => layerCenters[d.layer]?.y || 0).strength(d => d.layer ? 0.12 : 0.03));
+
+  // Custom clustering force — surface tension pulling nodes toward their layer centroid
+  function clusterForce() {
+    let nodes;
+    function force(alpha) {
+      const centroids = {};
+      const counts = {};
+      nodes.forEach(n => {
+        if (!n.layer) return;
+        if (!centroids[n.layer]) { centroids[n.layer] = {x: 0, y: 0}; counts[n.layer] = 0; }
+        centroids[n.layer].x += n.x;
+        centroids[n.layer].y += n.y;
+        counts[n.layer]++;
+      });
+      Object.keys(centroids).forEach(k => {
+        centroids[k].x /= counts[k];
+        centroids[k].y /= counts[k];
+      });
+      // Pull each node toward its layer centroid (surface tension)
+      const strength = 0.2;
+      nodes.forEach(n => {
+        if (!n.layer || !centroids[n.layer]) return;
+        n.vx += (centroids[n.layer].x - n.x) * alpha * strength;
+        n.vy += (centroids[n.layer].y - n.y) * alpha * strength;
+      });
+    }
+    force.initialize = (n) => { nodes = n; };
+    return force;
+  }
+  simulation.force('cluster', clusterForce());
+
+  // Boost link strength for intra-layer edges (tighter connections within a layer)
+  simulation.force('link').strength(l => {
+    const sLayer = (l.source.layer ?? l.source);
+    const tLayer = (l.target.layer ?? l.target);
+    return sLayer === tLayer ? 0.4 : 0.1;
+  });
+
+  hullGroup = g.insert('g', ':first-child');
+
+  function updateHulls() {
+    if (!hullGroup) return;
+    hullGroup.selectAll('*').remove();
+    if (activeLayerFilter) return; // hide hulls when single layer selected
+
+    LAYERS.forEach(layer => {
+      if (!activeLayers.has(layer.name)) return;
+      const layerNodes = DATA.nodes.filter(n => n.layer === layer.name);
+      if (layerNodes.length === 0) return;
+
+      const points = [];
+      layerNodes.forEach(n => {
+        if (n.x == null || n.y == null) return;
+        const r = nodeRadius(n) * nodeScale + 30;
+        // Add expanded points for a nicer hull shape
+        for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
+          points.push([n.x + Math.cos(a) * r, n.y + Math.sin(a) * r]);
+        }
+      });
+
+      if (points.length < 3) {
+        // Fallback: circle for 1-2 nodes
+        const cx = layerNodes.reduce((s, n) => s + (n.x || 0), 0) / layerNodes.length;
+        const cy = layerNodes.reduce((s, n) => s + (n.y || 0), 0) / layerNodes.length;
+        const maxR = Math.max(60, ...layerNodes.map(n => {
+          const dx = (n.x || 0) - cx, dy = (n.y || 0) - cy;
+          return Math.sqrt(dx*dx + dy*dy) + nodeRadius(n) * nodeScale + 30;
+        }));
+        hullGroup.append('circle')
+          .attr('cx', cx).attr('cy', cy).attr('r', maxR)
+          .attr('class', 'layer-hull')
+          .attr('fill', layer.color).attr('stroke', layer.color);
+        hullGroup.append('text')
+          .attr('class', 'layer-hull-label')
+          .attr('x', cx).attr('y', cy - maxR - 8)
+          .attr('text-anchor', 'middle')
+          .attr('fill', layer.color)
+          .text(layer.name);
+        return;
+      }
+
+      const hull = d3.polygonHull(points);
+      if (!hull) return;
+
+      // Smooth the hull with a cardinal closed curve
+      hullGroup.append('path')
+        .attr('class', 'layer-hull')
+        .attr('d', d3.line().curve(d3.curveCatmullRomClosed.alpha(0.5))(hull))
+        .attr('fill', layer.color).attr('stroke', layer.color);
+
+      // Label at the top of the hull
+      const topPt = hull.reduce((best, p) => p[1] < best[1] ? p : best, hull[0]);
+      hullGroup.append('text')
+        .attr('class', 'layer-hull-label')
+        .attr('x', topPt[0]).attr('y', topPt[1] - 10)
+        .attr('text-anchor', 'middle')
+        .attr('fill', layer.color)
+        .text(layer.name);
+    });
+  }
+
+  // Update hulls + cross-layer links on each tick
+  simulation.on('tick', () => {
+    // Regular links
+    link.each(function(d) {
+      const dx=d.target.x-d.source.x, dy=d.target.y-d.source.y;
+      const dist=Math.sqrt(dx*dx+dy*dy)||1;
+      const rT=nodeRadius(d.target)*nodeScale, rS=nodeRadius(d.source)*nodeScale;
+      d3.select(this)
+        .attr('x1',d.source.x+(dx/dist)*rS).attr('y1',d.source.y+(dy/dist)*rS)
+        .attr('x2',d.target.x-(dx/dist)*rT).attr('y2',d.target.y-(dy/dist)*rT);
+    });
+    node.attr('transform', d=>\`translate(\${d.x},\${d.y})\`);
+    // Cross-layer links — resolve node positions by ID
+    if (crossLinkData.length > 0) {
+      const nodeById = {};
+      DATA.nodes.forEach(n => { nodeById[n.id] = n; });
+      crossLink.each(function(d) {
+        const sN = nodeById[d.source], tN = nodeById[d.target];
+        if (!sN || !tN) return;
+        const dx = tN.x - sN.x, dy = tN.y - sN.y;
+        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        const rS = nodeRadius(sN) * nodeScale, rT = nodeRadius(tN) * nodeScale;
+        d3.select(this)
+          .attr('x1', sN.x + (dx/dist)*rS).attr('y1', sN.y + (dy/dist)*rS)
+          .attr('x2', tN.x - (dx/dist)*rT).attr('y2', tN.y - (dy/dist)*rT);
+      });
+      crossLabel.each(function(d) {
+        const sN = nodeById[d.source], tN = nodeById[d.target];
+        if (!sN || !tN) return;
+        d3.select(this).attr('x', (sN.x + tN.x) / 2).attr('y', (sN.y + tN.y) / 2 - 6);
+      });
+    }
+    updateHulls();
+  });
+
+  // ─── Layer legend ──────────────────────────
+  const layerLegend = document.getElementById('layer-legend');
+  LAYERS.forEach(layer => {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = '<div class="legend-dot" style="background:' + layer.color + '"></div> ' + layer.name;
+    layerLegend.appendChild(item);
+  });
+  // Cross-layer edge legend
+  if (CROSS_EDGES && CROSS_EDGES.length > 0) {
+    const crossItem = document.createElement('div');
+    crossItem.className = 'legend-item';
+    crossItem.innerHTML = '<span style="color:#f0883e;font-size:11px">- - →</span> Cross-layer link';
+    layerLegend.appendChild(crossItem);
+  }
+  // Add separator
+  const sep = document.createElement('hr');
+  sep.style.cssText = 'border:none;border-top:1px solid var(--border);margin:6px 0;';
+  layerLegend.appendChild(sep);
+
+  // ─── Layer tabs (in tab bar) ───────────────
+  const layerTabsEl = document.getElementById('layer-tabs');
+  const allTab = document.createElement('div');
+  allTab.className = 'layer-tab active';
+  allTab.textContent = 'All Layers';
+  allTab.onclick = () => selectLayerTab(null);
+  layerTabsEl.appendChild(allTab);
+
+  LAYERS.forEach(layer => {
+    const tab = document.createElement('div');
+    tab.className = 'layer-tab';
+    tab.innerHTML = '<div class="lt-dot" style="background:' + layer.color + '"></div>' + layer.name;
+    tab.onclick = () => selectLayerTab(layer.name);
+    layerTabsEl.appendChild(tab);
+  });
+
+  function selectLayerTab(layerName) {
+    activeLayerFilter = layerName;
+    // Update tab active state
+    layerTabsEl.querySelectorAll('.layer-tab').forEach((t, idx) => {
+      t.classList.toggle('active', layerName === null ? idx === 0 : t.textContent.includes(layerName));
+    });
+    applyLayerFilter();
+  }
+
+  applyLayerFilter = function() {
+    const isSingleLayer = !!activeLayerFilter;
+    node.attr('display', d => {
+      if (!activeDirs.has(d.dir)) return 'none';
+      if (!activeLayers.has(d.layer)) return 'none';
+      if (isSingleLayer && d.layer !== activeLayerFilter) return 'none';
+      return null;
+    });
+    link.attr('display', l => {
+      const s = l.source.id ?? l.source, t = l.target.id ?? l.target;
+      const sN = DATA.nodes.find(n => n.id === s), tN = DATA.nodes.find(n => n.id === t);
+      if (!sN || !tN) return 'none';
+      if (!activeDirs.has(sN.dir) || !activeDirs.has(tN.dir)) return 'none';
+      if (!activeLayers.has(sN.layer) || !activeLayers.has(tN.layer)) return 'none';
+      if (isSingleLayer && (sN.layer !== activeLayerFilter || tN.layer !== activeLayerFilter)) return 'none';
+      return null;
+    });
+    // Refresh node colors: single-layer = dir-based, all layers = layer-based
+    node.select('circle')
+      .attr('fill', nodeColor)
+      .attr('stroke', d => d.deps >= 5 ? 'var(--yellow)' : nodeColor(d));
+    // Cross-layer links visibility
+    if (typeof crossLink !== 'undefined') {
+      crossLink.attr('display', isSingleLayer ? 'none' : null);
+      crossLabel.attr('display', isSingleLayer ? 'none' : null);
+    }
+    // Update stats
+    const visibleNodes = DATA.nodes.filter(d => {
+      if (!activeDirs.has(d.dir)) return false;
+      if (!activeLayers.has(d.layer)) return false;
+      if (isSingleLayer && d.layer !== activeLayerFilter) return false;
+      return true;
+    });
+    const visibleIds = new Set(visibleNodes.map(n => n.id));
+    const visibleEdges = DATA.links.filter(l => {
+      const s = l.source.id ?? l.source, t = l.target.id ?? l.target;
+      return visibleIds.has(s) && visibleIds.has(t);
+    });
+    document.getElementById('s-files').textContent = visibleNodes.length;
+    document.getElementById('s-edges').textContent = visibleEdges.length;
+    const visCirc = DATA.circularFiles.filter(f => visibleIds.has(f));
+    document.getElementById('s-circular').textContent = visCirc.length;
+    updateHulls();
+    // Zoom to fit visible nodes after a short delay
+    setTimeout(() => zoomFit(), 200);
+  }
+
+  // ─── Layer filter pills ────────────────────
+  const layerFiltersEl = document.getElementById('layer-filters');
+  LAYERS.forEach(layer => {
+    const layerNodes = DATA.nodes.filter(n => n.layer === layer.name);
+    const pill = document.createElement('div');
+    pill.className = 'layer-pill active';
+    pill.innerHTML = '<div class="lp-dot" style="background:' + layer.color + '"></div>' + layer.name + ' <span class="lp-count">' + layerNodes.length + '</span>';
+    pill.onclick = () => {
+      if (activeLayers.has(layer.name)) { activeLayers.delete(layer.name); pill.classList.remove('active'); }
+      else { activeLayers.add(layer.name); pill.classList.add('active'); }
+      applyLayerFilter();
+    };
+    pill.onmouseenter = () => {
+      if (pinnedNode) return;
+      node.select('circle').transition().duration(120).attr('opacity', d => d.layer === layer.name ? 1 : 0.1);
+      node.select('text').transition().duration(120).attr('opacity', d => d.layer === layer.name ? 1 : 0.05);
+    };
+    pill.onmouseleave = () => {
+      if (pinnedNode) return;
+      node.select('circle').transition().duration(150).attr('opacity', 1);
+      node.select('text').transition().duration(150).attr('opacity', d => d.dependents >= 1 || d.deps >= 3 ? 1 : 0.5);
+    };
+    layerFiltersEl.appendChild(pill);
+  });
+
+  // Override applyFilter to respect layers
+  window._origApplyFilter = applyFilter;
+}
 
 setTimeout(()=>zoomFit(), 1500);
 
@@ -755,6 +1112,10 @@ DATA.dirs.forEach(dir=>{
   filtersEl.appendChild(pill);
 });
 function applyFilter(){
+  if (LAYERS) {
+    // Delegate to layer-aware filter
+    if (typeof applyLayerFilter === 'function') { applyLayerFilter(); return; }
+  }
   node.attr('display',d=>activeDirs.has(d.dir)?null:'none');
   link.attr('display',l=>{
     const s=l.source.id??l.source,t=l.target.id??l.target;

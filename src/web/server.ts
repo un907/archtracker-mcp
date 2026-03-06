@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
-import type { DependencyGraph, ArchDiff } from "../types/schema.js";
+import type { DependencyGraph, ArchDiff, LayerMetadata } from "../types/schema.js";
+import type { CrossLayerConnection } from "../types/layers.js";
 import { buildGraphPage } from "./template.js";
 import { getLocale } from "../i18n/index.js";
 import type { Locale } from "../i18n/index.js";
@@ -13,12 +14,23 @@ import type { Locale } from "../i18n/index.js";
  */
 export function startViewer(
   graph: DependencyGraph,
-  options: { port?: number; locale?: Locale; diff?: ArchDiff | null } = {},
+  options: {
+    port?: number;
+    locale?: Locale;
+    diff?: ArchDiff | null;
+    layerMetadata?: LayerMetadata[];
+    crossLayerEdges?: CrossLayerConnection[];
+  } = {},
 ): { port: number; close: () => void } {
   const port = options.port ?? 3000;
   const locale = options.locale ?? getLocale();
 
-  const html = buildGraphPage(graph, { locale, diff: options.diff });
+  const html = buildGraphPage(graph, {
+    locale,
+    diff: options.diff,
+    layerMetadata: options.layerMetadata,
+    crossLayerEdges: options.crossLayerEdges,
+  });
   const graphJson = JSON.stringify(graph);
 
   const server = createServer((req, res) => {

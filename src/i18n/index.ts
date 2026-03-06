@@ -113,6 +113,12 @@ const en = {
   // CI
   "ci.generated": "GitHub Actions workflow generated: {path}",
 
+  // Layers
+  "layers.alreadyExists": "layers.json already exists. Edit it manually to modify.",
+  "layers.created": "Created .archtracker/layers.json — edit it to configure your layers.",
+  "layers.notFound": "No .archtracker/layers.json found. Run 'archtracker layers init' to create one.",
+  "layers.header": "Configured layers ({count}):",
+
   // Web viewer
   "web.starting": "Starting architecture viewer...",
   "web.listening": "Architecture graph available at: http://localhost:{port}",
@@ -211,6 +217,12 @@ const ja = {
 
   // CI
   "ci.generated": "GitHub Actions ワークフローを生成しました: {path}",
+
+  // Layers
+  "layers.alreadyExists": "layers.json は既に存在します。直接編集してください。",
+  "layers.created": ".archtracker/layers.json を作成しました。レイヤーを設定してください。",
+  "layers.notFound": ".archtracker/layers.json が見つかりません。'archtracker layers init' で作成してください。",
+  "layers.header": "設定済みレイヤー ({count}件):",
 
   // Web viewer
   "web.starting": "アーキテクチャビューアーを起動中...",
