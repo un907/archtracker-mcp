@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-03-06
+
+### Fixed
+
+- **MCP server not starting via `npx archtracker-mcp`**: Added `archtracker-mcp` bin entry pointing to `dist/mcp/index.js`, so the MCP config `"command": "npx", "args": ["-y", "archtracker-mcp"]` now correctly starts the MCP server instead of the CLI
+- **MCP server missing shebang**: Added `#!/usr/bin/env node` to MCP server build output
+
 ## [0.4.0] - 2026-03-06
 
 ### Removed
@@ -148,6 +155,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security**: Path traversal protection for all file operations
 - **Test suite**: 54 tests (unit + E2E) with Vitest
 
+[0.4.1]: https://github.com/un907/archtracker-mcp/releases/tag/v0.4.1
 [0.4.0]: https://github.com/un907/archtracker-mcp/releases/tag/v0.4.0
 [0.3.2]: https://github.com/un907/archtracker-mcp/releases/tag/v0.3.2
 [0.3.1]: https://github.com/un907/archtracker-mcp/releases/tag/v0.3.1

@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig([
-  // MCP Server entry
+  // MCP Server entry (with shebang for bin usage)
   {
     entry: { "mcp/index": "src/mcp/index.ts" },
     format: ["esm"],
@@ -10,7 +10,9 @@ export default defineConfig([
     dts: true,
     sourcemap: true,
     clean: true,
-    banner: {},
+    banner: {
+      js: "#!/usr/bin/env node",
+    },
   },
   // CLI entry (with shebang)
   {

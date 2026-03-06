@@ -187,8 +187,9 @@ describe("package.json integrity", () => {
     expect(pkg.peerDependencies?.typescript).toBeUndefined();
   });
 
-  it("bin points to dist/cli/index.js", () => {
+  it("bin points to correct entry points", () => {
     expect(pkg.bin.archtracker).toBe("dist/cli/index.js");
+    expect(pkg.bin["archtracker-mcp"]).toBe("dist/mcp/index.js");
   });
 
   it("exports are properly configured", () => {
