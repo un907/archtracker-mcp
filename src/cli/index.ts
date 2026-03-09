@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { watch } from "node:fs";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { analyzeProject, AnalyzerError, formatAnalysisReport } from "../analyzer/index.js";
+import { analyzeProject, analyzeMultiLayer, detectCrossLayerConnections, AnalyzerError, formatAnalysisReport } from "../analyzer/index.js";
 import {
   saveSnapshot,
   loadSnapshot,
@@ -10,14 +10,63 @@ import {
   formatDiffReport,
   StorageError,
 } from "../storage/index.js";
+import { loadLayerConfig, saveLayerConfig } from "../storage/layers.js";
 import { startViewer } from "../web/server.js";
 import { t, setLocale } from "../i18n/index.js";
 import type { Locale } from "../i18n/index.js";
 import { VERSION } from "../utils/version.js";
 import { LANGUAGE_IDS } from "../analyzer/engines/types.js";
 import type { LanguageId } from "../analyzer/engines/types.js";
+import type { DependencyGraph, MultiLayerGraph, LayerMetadata } from "../types/schema.js";
+import type { CrossLayerConnection } from "../types/layers.js";
 
 const VALID_LANGUAGES = LANGUAGE_IDS as readonly string[];
+
+/**
+ * Resolve graph: if layers.json exists and --target was not explicitly set,
+ * use multi-layer analysis. Otherwise, use single-dir analysis.
+ */
+async function resolveGraph(opts: {
+  target: string;
+  root: string;
+  exclude?: string[];
+  language?: LanguageId;
+}): Promise<{ graph: DependencyGraph; multiLayer?: MultiLayerGraph; layerMetadata?: LayerMetadata[]; crossLayerEdges?: CrossLayerConnection[] }> {
+  // Check if --target was explicitly provided (not the default "src")
+  const targetExplicit = process.argv.some((a) => a === "-t" || a === "--target");
+
+  if (!targetExplicit) {
+    const layerConfig = await loadLayerConfig(opts.root);
+    if (layerConfig) {
+      const multi = await analyzeMultiLayer(opts.root, layerConfig.layers);
+      // Merge manual connections from layers.json with auto-detected ones
+      const autoConnections = detectCrossLayerConnections(multi.layers, layerConfig.layers);
+      const manualConnections = layerConfig.connections ?? [];
+      // Manual connections take priority; deduplicate by fromLayer/fromFile→toLayer/toFile
+      const manualKeys = new Set(manualConnections.map(
+        (c) => `${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`,
+      ));
+      const merged = [
+        ...manualConnections,
+        ...autoConnections.filter(
+          (c) => !manualKeys.has(`${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`),
+        ),
+      ];
+      return {
+        graph: multi.merged,
+        multiLayer: multi,
+        layerMetadata: multi.layerMetadata,
+        crossLayerEdges: merged,
+      };
+    }
+  }
+
+  const graph = await analyzeProject(opts.target, {
+    exclude: opts.exclude,
+    language: opts.language,
+  });
+  return { graph };
+}
 
 const program = new Command();
 
@@ -51,12 +100,14 @@ program
     try {
       const language = validateLanguage(opts.language);
       console.log(t("cli.analyzing"));
-      const graph = await analyzeProject(opts.target, {
+      const { graph, multiLayer } = await resolveGraph({
+        target: opts.target,
+        root: opts.root,
         exclude: opts.exclude,
         language,
       });
 
-      const snapshot = await saveSnapshot(opts.root, graph);
+      const snapshot = await saveSnapshot(opts.root, graph, multiLayer);
 
       console.log(t("cli.snapshotSaved"));
       console.log(t("cli.timestamp", { ts: snapshot.timestamp }));
@@ -106,7 +157,9 @@ program
     try {
       const language = validateLanguage(opts.language);
       console.log(t("cli.analyzing"));
-      const graph = await analyzeProject(opts.target, {
+      const { graph, multiLayer } = await resolveGraph({
+        target: opts.target,
+        root: opts.root,
         exclude: opts.exclude,
         language,
       });
@@ -115,7 +168,7 @@ program
       console.log(report);
 
       if (opts.save) {
-        await saveSnapshot(opts.root, graph);
+        await saveSnapshot(opts.root, graph, multiLayer);
         console.log(t("analyze.snapshotSaved"));
       }
     } catch (error) {
@@ -145,7 +198,11 @@ program
       }
 
       console.log(t("cli.analyzing"));
-      const currentGraph = await analyzeProject(opts.target, { language });
+      const { graph: currentGraph } = await resolveGraph({
+        target: opts.target,
+        root: opts.root,
+        language,
+      });
       const diff = computeDiff(existingSnapshot.graph, currentGraph);
       const report = formatDiffReport(diff);
 
@@ -179,8 +236,12 @@ program
 
       if (!snapshot) {
         console.log(t("cli.autoGenerating"));
-        const graph = await analyzeProject(opts.target, { language });
-        snapshot = await saveSnapshot(opts.root, graph);
+        const result = await resolveGraph({
+          target: opts.target,
+          root: opts.root,
+          language,
+        });
+        snapshot = await saveSnapshot(opts.root, result.graph, result.multiLayer);
       }
 
       const graph = snapshot.graph;
@@ -243,20 +304,25 @@ program
       console.log(t("cli.analyzing"));
 
       // Use snapshot if available, otherwise analyze fresh
-      let graph;
       let diff = null;
+      const result = await resolveGraph({
+        target: opts.target,
+        root: opts.root,
+        exclude: opts.exclude,
+        language,
+      });
       const snapshot = await loadSnapshot(opts.root);
       if (snapshot) {
-        // Compute diff against current code if snapshot exists
-        const currentGraph = await analyzeProject(opts.target, { exclude: opts.exclude, language });
-        diff = computeDiff(snapshot.graph, currentGraph);
-        graph = currentGraph;
-      } else {
-        graph = await analyzeProject(opts.target, { exclude: opts.exclude, language });
+        diff = computeDiff(snapshot.graph, result.graph);
       }
 
       const port = parseInt(opts.port, 10);
-      const viewer = startViewer(graph, { port, diff });
+      const viewer = startViewer(result.graph, {
+        port,
+        diff,
+        layerMetadata: result.layerMetadata,
+        crossLayerEdges: result.crossLayerEdges,
+      });
 
       console.log(t("web.listening", { port }));
       console.log(t("web.stop"));
@@ -269,9 +335,18 @@ program
           debounce = setTimeout(async () => {
             try {
               console.log(t("web.reloading"));
-              const newGraph = await analyzeProject(opts.target, { exclude: opts.exclude, language });
+              const newResult = await resolveGraph({
+                target: opts.target,
+                root: opts.root,
+                exclude: opts.exclude,
+                language,
+              });
               viewer.close();
-              startViewer(newGraph, { port });
+              startViewer(newResult.graph, {
+                port,
+                layerMetadata: newResult.layerMetadata,
+                crossLayerEdges: newResult.crossLayerEdges,
+              });
               console.log(t("web.reloaded"));
             } catch { /* ignore transient errors during file saves */ }
           }, 500);
@@ -314,6 +389,62 @@ jobs:
       const path = join(dir, "arch-check.yml");
       await writeFile(path, workflow, "utf-8");
       console.log(t("ci.generated", { path }));
+    } catch (error) {
+      handleError(error);
+    }
+  });
+
+// ─── archtracker layers ──────────────────────────────────────────
+
+const layersCmd = program
+  .command("layers")
+  .description("Manage multi-layer architecture configuration");
+
+layersCmd
+  .command("init")
+  .description("Create a template .archtracker/layers.json")
+  .option("-r, --root <dir>", "Project root", ".")
+  .action(async (opts) => {
+    try {
+      const existing = await loadLayerConfig(opts.root);
+      if (existing) {
+        console.log(t("layers.alreadyExists"));
+        return;
+      }
+
+      const config = {
+        version: "1.0" as const,
+        layers: [
+          { name: "Frontend", targetDir: "frontend", description: "UI layer" },
+          { name: "Backend", targetDir: "backend", description: "API layer" },
+        ],
+      };
+
+      await saveLayerConfig(opts.root, config);
+      console.log(t("layers.created"));
+    } catch (error) {
+      handleError(error);
+    }
+  });
+
+layersCmd
+  .command("list")
+  .description("List configured layers")
+  .option("-r, --root <dir>", "Project root", ".")
+  .action(async (opts) => {
+    try {
+      const config = await loadLayerConfig(opts.root);
+      if (!config) {
+        console.log(t("layers.notFound"));
+        return;
+      }
+
+      console.log(t("layers.header", { count: config.layers.length }));
+      for (const layer of config.layers) {
+        const lang = layer.language ? ` [${layer.language}]` : "";
+        const desc = layer.description ? ` — ${layer.description}` : "";
+        console.log(`  ${layer.name}: ${layer.targetDir}${lang}${desc}`);
+      }
     } catch (error) {
       handleError(error);
     }

@@ -94,7 +94,7 @@ describe("Snapshot", () => {
       "utf-8",
     );
     const parsed = JSON.parse(raw) as ArchSnapshot;
-    expect(parsed.version).toBe("1.0");
+    expect(parsed.version).toBe("1.1");
   });
 });
 

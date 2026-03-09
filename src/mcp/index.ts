@@ -3,6 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import {
   analyzeProject,
+  analyzeMultiLayer,
+  detectCrossLayerConnections,
   AnalyzerError,
   searchByPath,
   findAffectedFiles,
@@ -15,13 +17,16 @@ import {
   loadSnapshot,
   computeDiff,
   formatDiffReport,
+  loadLayerConfig,
   StorageError,
 } from "../storage/index.js";
-import type { ArchContext } from "../types/schema.js";
+import type { ArchContext, DependencyGraph, MultiLayerGraph, LayerMetadata } from "../types/schema.js";
+import type { CrossLayerConnection } from "../types/layers.js";
 import { validatePath, PathTraversalError } from "../utils/path-guard.js";
 import { t } from "../i18n/index.js";
 import { VERSION } from "../utils/version.js";
 import { LANGUAGE_IDS } from "../analyzer/engines/types.js";
+import type { LanguageId } from "../analyzer/engines/types.js";
 
 const server = new McpServer({
   name: "archtracker",
@@ -39,16 +44,74 @@ const languageList = LANGUAGE_IDS
   .map((id) => LANG_DISPLAY[id] ?? id.charAt(0).toUpperCase() + id.slice(1))
   .join(", ");
 
+// ─── Multi-layer auto-detection helper ───────────────────────────
+
+interface ResolvedGraph {
+  graph: DependencyGraph;
+  multiLayer?: MultiLayerGraph;
+  layerMetadata?: LayerMetadata[];
+  crossEdges?: CrossLayerConnection[];
+}
+
+/**
+ * If layers.json exists and targetDir is the default "src", use multi-layer analysis.
+ * Otherwise fall back to single-directory analysis.
+ */
+async function resolveGraphForMcp(opts: {
+  targetDir: string;
+  projectRoot: string;
+  exclude?: string[];
+  language?: LanguageId;
+}): Promise<ResolvedGraph> {
+  // Only auto-detect when targetDir is the default "src"
+  if (opts.targetDir === "src") {
+    const layerConfig = await loadLayerConfig(opts.projectRoot);
+    if (layerConfig) {
+      const multi = await analyzeMultiLayer(opts.projectRoot, layerConfig.layers);
+      // Auto-detect cross-layer connections
+      const autoConnections = detectCrossLayerConnections(multi.layers, layerConfig.layers);
+      const manualConnections = layerConfig.connections ?? [];
+      const manualKeys = new Set(manualConnections.map(
+        (c) => `${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`,
+      ));
+      const allConnections = [
+        ...manualConnections,
+        ...autoConnections.filter(
+          (c) => !manualKeys.has(`${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`),
+        ),
+      ];
+      return { graph: multi.merged, multiLayer: multi, layerMetadata: multi.layerMetadata, crossEdges: allConnections };
+    }
+  }
+
+  const graph = await analyzeProject(opts.targetDir, {
+    exclude: opts.exclude,
+    language: opts.language,
+  });
+  return { graph };
+}
+
+/** Format layer summary for MCP text responses */
+function formatLayerSummary(metadata: LayerMetadata[]): string {
+  return metadata.map((m) =>
+    `  [${m.name}] ${m.fileCount} files, ${m.edgeCount} edges (${m.language})`
+  ).join("\n");
+}
+
 // ─── Tool 1: generate_map ───────────────────────────────────────
 
 server.tool(
   "generate_map",
-  `Analyze dependency graph of a directory and return file import/export structure as JSON. Supports ${languageList}.`,
+  `Analyze dependency graph and return raw JSON structure for programmatic use. For human-readable reports, use analyze_existing_architecture instead. Auto-detects multi-layer projects when .archtracker/layers.json exists. Supports ${languageList}.`,
   {
     targetDir: z
       .string()
       .default("src")
-      .describe("Target directory path (default: src)"),
+      .describe("Target directory path (default: src). When layers.json exists and this is 'src', multi-layer analysis is used automatically."),
+    projectRoot: z
+      .string()
+      .default(".")
+      .describe("Project root (where .archtracker/ is located)"),
     exclude: z
       .array(z.string())
       .optional()
@@ -63,22 +126,30 @@ server.tool(
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
-  async ({ targetDir, exclude, maxDepth, language }) => {
+  async ({ targetDir, projectRoot, exclude, maxDepth, language }) => {
     try {
       validatePath(targetDir);
-      const graph = await analyzeProject(targetDir, { exclude, maxDepth, language });
+      validatePath(projectRoot);
+      const { graph, layerMetadata, crossEdges } = await resolveGraphForMcp({
+        targetDir, projectRoot, exclude, language,
+      });
 
       const summary = [
         t("mcp.analyzeComplete", { files: graph.totalFiles, edges: graph.totalEdges }),
         graph.circularDependencies.length > 0
           ? t("mcp.circularFound", { count: graph.circularDependencies.length })
           : t("mcp.circularNone"),
+        ...(layerMetadata ? ["\nLayers:\n" + formatLayerSummary(layerMetadata)] : []),
+        ...(crossEdges?.length ? [`\nCross-layer connections: ${crossEdges.length}`] : []),
       ].join("\n");
+
+      const result: Record<string, unknown> = { ...graph };
+      if (crossEdges?.length) result.crossLayerConnections = crossEdges;
 
       return {
         content: [
           { type: "text" as const, text: summary },
-          { type: "text" as const, text: JSON.stringify(graph, null, 2) },
+          { type: "text" as const, text: JSON.stringify(result, null, 2) },
         ],
       };
     } catch (error) {
@@ -123,16 +194,29 @@ server.tool(
   async ({ targetDir, exclude, topN, saveSnapshot: doSave, projectRoot, language }) => {
     try {
       validatePath(targetDir);
-      const graph = await analyzeProject(targetDir, { exclude, language });
+      const { graph, multiLayer, layerMetadata, crossEdges } = await resolveGraphForMcp({
+        targetDir, projectRoot, exclude, language,
+      });
       const report = formatAnalysisReport(graph, { topN: topN ?? 10 });
 
       const content: { type: "text"; text: string }[] = [
         { type: "text" as const, text: report },
       ];
 
+      if (layerMetadata) {
+        content.push({ type: "text" as const, text: "\nLayers:\n" + formatLayerSummary(layerMetadata) });
+      }
+
+      if (crossEdges?.length) {
+        const crossSummary = crossEdges.map((c) =>
+          `  ${c.fromLayer}/${c.fromFile} → ${c.toLayer}/${c.toFile} [${c.type}] ${c.label ?? ""}`
+        ).join("\n");
+        content.push({ type: "text" as const, text: `\nCross-layer connections (${crossEdges.length}):\n${crossSummary}` });
+      }
+
       if (doSave) {
         validatePath(projectRoot);
-        await saveSnapshot(projectRoot, graph);
+        await saveSnapshot(projectRoot, graph, multiLayer);
         content.push({ type: "text" as const, text: t("analyze.snapshotSaved") });
       }
 
@@ -165,8 +249,10 @@ server.tool(
     try {
       validatePath(targetDir);
       validatePath(projectRoot);
-      const graph = await analyzeProject(targetDir, { language });
-      const snapshot = await saveSnapshot(projectRoot, graph);
+      const { graph, multiLayer, layerMetadata } = await resolveGraphForMcp({
+        targetDir, projectRoot, language,
+      });
+      const snapshot = await saveSnapshot(projectRoot, graph, multiLayer);
 
       // Top 5 most-depended-on files
       const keyComponents = Object.values(graph.files)
@@ -179,6 +265,7 @@ server.tool(
         t("cli.timestamp", { ts: snapshot.timestamp }),
         t("cli.fileCount", { count: graph.totalFiles }),
         t("cli.edgeCount", { count: graph.totalEdges }),
+        ...(layerMetadata ? ["", "Layers:", formatLayerSummary(layerMetadata)] : []),
         "",
         t("cli.keyComponents"),
         ...keyComponents,
@@ -191,7 +278,7 @@ server.tool(
   },
 );
 
-// ─── Tool 3: check_architecture_diff ────────────────────────────
+// ─── Tool 4: check_architecture_diff ────────────────────────────
 
 server.tool(
   "check_architecture_diff",
@@ -217,8 +304,10 @@ server.tool(
 
       if (!existingSnapshot) {
         // Auto-generate initial snapshot
-        const graph = await analyzeProject(targetDir, { language });
-        await saveSnapshot(projectRoot, graph);
+        const { graph, multiLayer } = await resolveGraphForMcp({
+          targetDir, projectRoot, language,
+        });
+        await saveSnapshot(projectRoot, graph, multiLayer);
         return {
           content: [
             {
@@ -233,7 +322,9 @@ server.tool(
         };
       }
 
-      const currentGraph = await analyzeProject(targetDir, { language });
+      const { graph: currentGraph } = await resolveGraphForMcp({
+        targetDir, projectRoot, language,
+      });
       const diff = computeDiff(existingSnapshot.graph, currentGraph);
       const report = formatDiffReport(diff);
 
@@ -244,7 +335,7 @@ server.tool(
   },
 );
 
-// ─── Tool 4: get_current_context ────────────────────────────────
+// ─── Tool 4b: get_current_context ───────────────────────────────
 
 server.tool(
   "get_current_context",
@@ -268,8 +359,10 @@ server.tool(
 
       // Auto-generate if no snapshot exists
       if (!snapshot) {
-        const graph = await analyzeProject(targetDir, { language });
-        snapshot = await saveSnapshot(projectRoot, graph);
+        const { graph, multiLayer } = await resolveGraphForMcp({
+          targetDir, projectRoot, language,
+        });
+        snapshot = await saveSnapshot(projectRoot, graph, multiLayer);
       }
 
       const graph = snapshot.graph;
@@ -324,7 +417,7 @@ server.tool(
   },
 );
 
-// ─── Tool 5: search_architecture ────────────────────────────────
+// ─── Tool 5: search_architecture ─────────────────────────────────
 
 server.tool(
   "search_architecture",
@@ -366,8 +459,10 @@ server.tool(
       // Use existing snapshot or generate fresh
       let snapshot = await loadSnapshot(projectRoot);
       if (!snapshot) {
-        const graph = await analyzeProject(targetDir, { language });
-        snapshot = await saveSnapshot(projectRoot, graph);
+        const { graph, multiLayer } = await resolveGraphForMcp({
+          targetDir, projectRoot, language,
+        });
+        snapshot = await saveSnapshot(projectRoot, graph, multiLayer);
       }
 
       const graph = snapshot.graph;
