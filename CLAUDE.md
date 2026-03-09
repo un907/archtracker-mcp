@@ -33,7 +33,7 @@ src/
 ├── index.ts                  # Public API re-exports (ライブラリ用)
 ├── bin.ts                    # Smart entry: CLI subcommand あり→CLI, なし→MCP server
 ├── cli/index.ts              # commander ベースの CLI (init, analyze, check, context, serve, ci-setup, layers)
-├── mcp/index.ts              # MCP server (5 tools: generate_map, analyze_existing_architecture, save_architecture_snapshot, check_architecture_diff, get_current_context, search_architecture)
+├── mcp/index.ts              # MCP server (6 tools: generate_map, analyze_existing_architecture, save_architecture_snapshot, check_architecture_diff, get_current_context, search_architecture)
 ├── analyzer/
 │   ├── analyze.ts            # analyzeProject() — 単一ディレクトリ解析のメイン
 │   ├── multi-layer.ts        # analyzeMultiLayer(), detectCrossLayerConnections() — マルチレイヤー解析
@@ -56,7 +56,7 @@ src/
 │   ├── index.ts              # barrel export
 │   └── *.test.ts
 ├── web/
-│   ├── server.ts             # Express サーバー (startViewer → 単一HTML応答)
+│   ├── server.ts             # node:http サーバー (startViewer → 単一HTML応答、Express不使用)
 │   └── template.ts           # buildGraphPage() — 全 HTML/CSS/JS を template literal で生成 (~1700行)
 ├── types/
 │   ├── schema.ts             # DependencyGraph, ArchSnapshot, ArchDiff, MultiLayerGraph, LayerMetadata
@@ -94,10 +94,45 @@ skills/                       # Claude Code Skills (6個)
 ### Web Viewer の設計
 - `template.ts` が全 HTML/CSS/JS を1つの文字列として生成 (SPA、外部ファイルなし)
 - D3.js は CDN から読み込み
-- `buildGraphPage(graph, options)` → HTML string → Express が `/` で返す
+- `server.ts`: `node:http` で `/` に HTML を返すだけ (Express 不使用、依存ゼロ)
+- `buildGraphPage(graph, options)` → HTML string → `server.ts` が返す
 - フレームワーク不使用: vanilla JS + d3.js force simulation
 - 状態管理: module-level 変数 + 関数ポインタパターン (`applyLayerFilter`, `hierRelayout`, `hierSyncFromTab`)
 - `template.ts` は巨大 (~1700行) だが意図的に単一ファイル。分割すると HTML/CSS/JS の連携が複雑化する
+
+### template.ts 内部構造 (頻繁に編集するため詳述)
+
+**データ注入** — `buildGraphPage()` が以下をクライアント JS にインライン埋め込み:
+```
+const DATA = ${JSON.stringify(graphData)};   // nodes, links, dirs, circularFiles
+const LAYERS = ${layersData};                // LayerMetadata[] or null
+const CROSS_EDGES = ${crossEdgesData};       // CrossLayerConnection[] or null
+const DIFF_DATA = ${diffData};               // ArchDiff or null
+```
+
+**3つのビュー** (タブ切替):
+1. **Graph View** (~行700-1050): d3 force simulation, convex hull レイヤーグループ, レイヤータブ
+2. **Hierarchy View** (~行1200-1550): 深度ベース DAG レイアウト, `buildHierarchy()` で遅延構築
+3. **Diff View** (~行1590-1700): 独立 simulation, レイヤーブロッキング, diff-aware ハイライト
+
+**レイヤーフィルタモデル** (include-filter):
+- `activeLayers: Set<string>` — 空 = 全表示 (フィルタなし), 非空 = 選択されたレイヤーのみ表示
+- `activeLayerFilter` は DEPRECATED (後方互換で残存、常に null)
+- レイヤータブはマルチセレクトトグル。Shift+クリックでソロモード
+- "All" タブは `activeLayers.clear()` でリセット
+
+**関数ポインタパターン** (ビュー間同期):
+- `applyLayerFilter` — graph view のノード/リンク表示切替 + physics 更新 + hull 更新
+- `hierRelayout` / `hierSyncFromTab` — hierarchy view をクロージャ外から呼ぶためのポインタ (buildHierarchy() 内で代入)
+- グラフのタブクリック → `applyLayerFilter()` + `hierSyncFromTab()` + `hierRelayout()` で両ビュー同期
+
+**Physics パラメータ**:
+- `gravityStrength` (Gravity slider) — `forceManyBody().strength(-gravityStrength)`
+- `layerGravity` (Layer Cohesion slider) — `forceX/Y().strength(layerGravity/100)` でレイヤー中心への引力
+- `getLayerCenters()` — activeLayers に応じて動的に中心座標を計算 (全表示=フル円, 複数選択=コンパクト円, 単体=原点)
+- `clusterForce()` — カスタム d3 force: ノードをレイヤー重心に引っ張る (表面張力)
+
+**設定永続化**: `saveSettings()` → localStorage, `loadSettings()` → 起動時に2フェーズ復元 (グラフ構築前 + 後)
 
 ### マルチレイヤー設計
 - `.archtracker/layers.json` に定義 → `loadLayerConfig()` で読み込み
@@ -112,6 +147,19 @@ skills/                       # Claude Code Skills (6個)
 - `LanguageConfig` で言語ごとの import パターン、resolver、コメントスタイルを定義
 - `extractImports` カスタムフックで複雑な構文に対応 (Rust grouped use, C# class references)
 - コメント除去 → import 抽出 → パス解決 → エッジ生成 のパイプライン
+
+### `--root` vs `--target` (重要: マルチレイヤーで最も踏む地雷)
+- `--target <dir>`: 解析対象ディレクトリ (デフォルト `src`)。**明示指定するとマルチレイヤー自動検出がスキップされる**
+- `--root <dir>`: プロジェクトルート (`.archtracker/` の場所)。デフォルト `.`
+- マルチレイヤーを使うには: `--root /path/to/project` を指定し、`--target` は指定しない
+- CLI判定 (`resolveGraph`): `process.argv` に `-t` or `--target` があるか → あれば単一ディレクトリ
+- MCP判定 (`resolveGraphForMcp`): `targetDir === "src"` (デフォルト値) か → デフォルトなら layers.json を探す
+- よくある間違い: `archtracker serve --target /tmp/project` → マルチレイヤー無視。正しくは `--root /tmp/project`
+
+### npm パッケージ構成
+- `package.json` の `"files": ["dist", "skills"]` — dist/ と skills/ のみ publish
+- ソースコード (src/) は npm パッケージに含まれない
+- `dist/` 内は tsup がバンドル済み。node_modules の依存は外部化 (実行時に必要)
 
 ## Key Design Decisions
 
@@ -161,10 +209,25 @@ node dist/bin.js serve --target src --port 3456
 ブラウザで http://localhost:3456 を開いて目視確認。
 `template.ts` 変更後は `npm run build` → サーバー再起動が必要。
 
+## MCP Tool の使い分け
+
+| Tool | 用途 | 返却形式 |
+|------|------|---------|
+| `generate_map` | プログラム的にグラフ構造を取得 | raw JSON |
+| `analyze_existing_architecture` | 人間向けレポート | Markdown テキスト |
+| `save_architecture_snapshot` | ベースライン保存 | 確認メッセージ |
+| `check_architecture_diff` | スナップショット差分 | 差分レポート |
+| `get_current_context` | AIセッション初期化 | パス一覧 + サマリー |
+| `search_architecture` | 検索 (4モード: path/affected/critical/orphans) | 検索結果 |
+
+`generate_map` と `analyze_existing_architecture` の混同に注意。前者は JSON、後者は人間向け。
+
 ## Gotchas
 
 - `template.ts` 内の JS は template literal 内の文字列。TypeScript の型チェックは効かない。ブラウザコンソールで確認
-- `const` 宣言の Temporal Dead Zone (TDZ) に注意: `template.ts` 内の変数宣言順序が初期化順序と一致する必要がある
+- `const` 宣言の Temporal Dead Zone (TDZ) に注意: `template.ts` 内の変数宣言順序が初期化順序と一致する必要がある。特に `activeLayers` は `nodeColor()` より前に宣言必須 (v0.5.0で踏んだバグ)
 - `resolveGraph()` (CLI) と `resolveGraphForMcp()` (MCP) は別実装。CLI は `process.argv` で `--target` 明示判定、MCP は `targetDir === "src"` で判定
 - Snapshot schema version: v1.0 と v1.1 の両方を Zod union で受け入れ。新規保存は常に v1.1
-- Web viewer の force simulation: `DATA.links` 内のオブジェクトは d3 により source/target が node reference に変更される (破壊的)
+- Web viewer の force simulation: `DATA.links` 内のオブジェクトは d3 により source/target が node reference に変更される (破壊的)。Diff view は独立した `simLinks` / `simNodes` を使う必要がある
+- Diff view の `updateDiffHulls()` は tick ごとに呼ぶとフリーズする。3 tick に1回にスロットル
+- Web viewer のデバッグ: `npm run build` → サーバー再起動 → ブラウザリロード。ホットリロードなし
