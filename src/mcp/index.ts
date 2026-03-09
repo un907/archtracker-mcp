@@ -102,12 +102,16 @@ function formatLayerSummary(metadata: LayerMetadata[]): string {
 
 server.tool(
   "generate_map",
-  `Analyze dependency graph of a directory and return file import/export structure as JSON. Supports ${languageList}.`,
+  `Analyze dependency graph and return raw JSON structure for programmatic use. For human-readable reports, use analyze_existing_architecture instead. Auto-detects multi-layer projects when .archtracker/layers.json exists. Supports ${languageList}.`,
   {
     targetDir: z
       .string()
       .default("src")
-      .describe("Target directory path (default: src)"),
+      .describe("Target directory path (default: src). When layers.json exists and this is 'src', multi-layer analysis is used automatically."),
+    projectRoot: z
+      .string()
+      .default(".")
+      .describe("Project root (where .archtracker/ is located)"),
     exclude: z
       .array(z.string())
       .optional()
@@ -122,11 +126,12 @@ server.tool(
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
-  async ({ targetDir, exclude, maxDepth, language }) => {
+  async ({ targetDir, projectRoot, exclude, maxDepth, language }) => {
     try {
       validatePath(targetDir);
+      validatePath(projectRoot);
       const { graph, layerMetadata, crossEdges } = await resolveGraphForMcp({
-        targetDir, projectRoot: ".", exclude, language,
+        targetDir, projectRoot, exclude, language,
       });
 
       const summary = [
@@ -330,7 +335,7 @@ server.tool(
   },
 );
 
-// ─── Tool 5: get_current_context ────────────────────────────────
+// ─── Tool 4b: get_current_context ───────────────────────────────
 
 server.tool(
   "get_current_context",
@@ -412,7 +417,7 @@ server.tool(
   },
 );
 
-// ─── Tool 5: search_architecture ────────────────────────────────
+// ─── Tool 5: search_architecture ─────────────────────────────────
 
 server.tool(
   "search_architecture",

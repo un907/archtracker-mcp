@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-03-09
+
+### Added
+
+- **Multi-layer architecture support**: Analyze multiple services/layers as a unified dependency graph
+  - `.archtracker/layers.json` configuration with per-layer language, color, and description
+  - `archtracker layers init` / `archtracker layers list` CLI commands
+  - Auto-detection: all commands use multi-layer mode when `layers.json` exists and `--target` is not explicitly set
+  - Cross-layer connection detection (auto-detected from shared file names + manual `connections` in config)
+  - Merged graph with layer-prefixed paths (e.g. `Backend/worker.py`)
+- **Web Viewer — Layer visualization**:
+  - Convex hull grouping: each layer is visually enclosed with a colored boundary
+  - Layer tabs: multi-select toggle to focus on specific layers (Shift+click for solo mode)
+  - Cross-layer links: dashed lines between layers with labels (toggleable in settings sidebar)
+  - Layer Cohesion slider: adjust intra-layer clustering strength independently from gravity
+  - Dynamic layer positioning: multi-selected layers arrange compactly, all-layers restores full spread
+  - Water-droplet physics: custom cluster force + boosted intra-layer link strength
+- **Web Viewer — Hierarchy view layer support**:
+  - Layer-aware filtering with compact relayout (nodes hidden + positions recalculated, not just opacity)
+  - Layer pill sync with graph view tabs
+  - Depth label compaction when empty levels are filtered out
+- **Web Viewer — Diff view improvements**:
+  - Layer-based node blocking (nodes grouped by layer, not scattered)
+  - Diff-aware hull highlighting (layers with changes are visually highlighted)
+  - Isolated force simulation (no longer shares coordinates with main graph)
+- **MCP**: `generate_map` now accepts `projectRoot` parameter for multi-layer auto-detection
+- **Skills**: New `/arch-serve` skill for launching the interactive web viewer
+- **Programmatic API**: `analyzeMultiLayer()` and `detectCrossLayerConnections()` exported
+
+### Changed
+
+- **MCP tool descriptions**: `generate_map` now clearly states it returns raw JSON for programmatic use (vs `analyze_existing_architecture` for human-readable reports)
+- **Skills updated for v0.5.0**: All 6 skills now document multi-layer support, `projectRoot` usage, and use locale-neutral language instructions
+- **Snapshot schema**: Version `1.1` with optional `multiLayer` field (backward-compatible with `1.0`)
+- **Test suite**: 403 tests total
+
 ## [0.4.3] - 2026-03-06
 
 ### Fixed
@@ -168,6 +204,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security**: Path traversal protection for all file operations
 - **Test suite**: 54 tests (unit + E2E) with Vitest
 
+[0.5.0]: https://github.com/un907/archtracker-mcp/releases/tag/v0.5.0
+[0.4.3]: https://github.com/un907/archtracker-mcp/releases/tag/v0.4.3
 [0.4.2]: https://github.com/un907/archtracker-mcp/releases/tag/v0.4.2
 [0.4.1]: https://github.com/un907/archtracker-mcp/releases/tag/v0.4.1
 [0.4.0]: https://github.com/un907/archtracker-mcp/releases/tag/v0.4.0
