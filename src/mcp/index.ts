@@ -21,6 +21,7 @@ import {
   StorageError,
 } from "../storage/index.js";
 import type { ArchContext, DependencyGraph, MultiLayerGraph, LayerMetadata } from "../types/schema.js";
+import type { CrossLayerConnection } from "../types/layers.js";
 import { validatePath, PathTraversalError } from "../utils/path-guard.js";
 import { t } from "../i18n/index.js";
 import { VERSION } from "../utils/version.js";
@@ -49,6 +50,7 @@ interface ResolvedGraph {
   graph: DependencyGraph;
   multiLayer?: MultiLayerGraph;
   layerMetadata?: LayerMetadata[];
+  crossEdges?: CrossLayerConnection[];
 }
 
 /**
@@ -78,7 +80,7 @@ async function resolveGraphForMcp(opts: {
           (c) => !manualKeys.has(`${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`),
         ),
       ];
-      return { graph: multi.merged, multiLayer: multi, layerMetadata: multi.layerMetadata };
+      return { graph: multi.merged, multiLayer: multi, layerMetadata: multi.layerMetadata, crossEdges: allConnections };
     }
   }
 
@@ -123,7 +125,7 @@ server.tool(
   async ({ targetDir, exclude, maxDepth, language }) => {
     try {
       validatePath(targetDir);
-      const { graph, layerMetadata } = await resolveGraphForMcp({
+      const { graph, layerMetadata, crossEdges } = await resolveGraphForMcp({
         targetDir, projectRoot: ".", exclude, language,
       });
 
@@ -133,12 +135,16 @@ server.tool(
           ? t("mcp.circularFound", { count: graph.circularDependencies.length })
           : t("mcp.circularNone"),
         ...(layerMetadata ? ["\nLayers:\n" + formatLayerSummary(layerMetadata)] : []),
+        ...(crossEdges?.length ? [`\nCross-layer connections: ${crossEdges.length}`] : []),
       ].join("\n");
+
+      const result: Record<string, unknown> = { ...graph };
+      if (crossEdges?.length) result.crossLayerConnections = crossEdges;
 
       return {
         content: [
           { type: "text" as const, text: summary },
-          { type: "text" as const, text: JSON.stringify(graph, null, 2) },
+          { type: "text" as const, text: JSON.stringify(result, null, 2) },
         ],
       };
     } catch (error) {
@@ -183,7 +189,7 @@ server.tool(
   async ({ targetDir, exclude, topN, saveSnapshot: doSave, projectRoot, language }) => {
     try {
       validatePath(targetDir);
-      const { graph, multiLayer, layerMetadata } = await resolveGraphForMcp({
+      const { graph, multiLayer, layerMetadata, crossEdges } = await resolveGraphForMcp({
         targetDir, projectRoot, exclude, language,
       });
       const report = formatAnalysisReport(graph, { topN: topN ?? 10 });
@@ -194,6 +200,13 @@ server.tool(
 
       if (layerMetadata) {
         content.push({ type: "text" as const, text: "\nLayers:\n" + formatLayerSummary(layerMetadata) });
+      }
+
+      if (crossEdges?.length) {
+        const crossSummary = crossEdges.map((c) =>
+          `  ${c.fromLayer}/${c.fromFile} → ${c.toLayer}/${c.toFile} [${c.type}] ${c.label ?? ""}`
+        ).join("\n");
+        content.push({ type: "text" as const, text: `\nCross-layer connections (${crossEdges.length}):\n${crossSummary}` });
       }
 
       if (doSave) {

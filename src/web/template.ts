@@ -727,6 +727,9 @@ const simulation = d3.forceSimulation(DATA.nodes)
 // ─── Layer convex hulls ─────────────────────
 let hullGroup = null;
 const activeLayers = new Set(LAYERS ? LAYERS.map(l => l.name) : []);
+const activeDirs = new Set(DATA.dirs);
+const dirCounts = {};
+DATA.nodes.forEach(n => dirCounts[n.dir] = (dirCounts[n.dir] || 0) + 1);
 var applyLayerFilter = null; // hoisted for dir-filter integration
 
 if (LAYERS && LAYERS.length > 0) {
@@ -968,8 +971,19 @@ if (LAYERS && LAYERS.length > 0) {
     const visCirc = DATA.circularFiles.filter(f => visibleIds.has(f));
     document.getElementById('s-circular').textContent = visCirc.length;
     updateHulls();
-    // Zoom to fit visible nodes after a short delay
-    setTimeout(() => zoomFit(), 200);
+    // Adjust physics: single-layer = spread out, all layers = clustered
+    if (isSingleLayer) {
+      simulation.force('charge', d3.forceManyBody().strength(-gravityStrength * 3).distanceMax(800));
+      simulation.force('layerX', d3.forceX(0).strength(0.03));
+      simulation.force('layerY', d3.forceY(0).strength(0.03));
+    } else {
+      simulation.force('charge', d3.forceManyBody().strength(-gravityStrength).distanceMax(500));
+      simulation.force('layerX', d3.forceX(d => layerCenters[d.layer]?.x || 0).strength(d => d.layer ? 0.12 : 0.03));
+      simulation.force('layerY', d3.forceY(d => layerCenters[d.layer]?.y || 0).strength(d => d.layer ? 0.12 : 0.03));
+    }
+    simulation.alpha(0.6).restart();
+    // Zoom to fit visible nodes after simulation settles
+    setTimeout(() => zoomFit(), 600);
   }
 
   // ─── Layer filter pills (new grouped bar) ────────────────────
@@ -1145,9 +1159,6 @@ searchInput.addEventListener('input',e=>{
 });
 
 // ─── Filters (click=toggle, hover=highlight nodes) ──
-const activeDirs=new Set(DATA.dirs);
-const dirCounts={};
-DATA.nodes.forEach(n=>dirCounts[n.dir]=(dirCounts[n.dir]||0)+1);
 if (!LAYERS) {
   // Non-layer mode: flat pills in filter-layer-row
   const filterRowEl=document.getElementById('filter-layer-row');

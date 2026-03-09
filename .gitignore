@@ -8,3 +8,6 @@ coverage/
 .e2e-test-tmp/
 .env
 .env.*
+
+# Local debug/scratch test files
+src/analyzer/test-*.test.ts
