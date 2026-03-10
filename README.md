@@ -169,6 +169,14 @@ The interactive web viewer provides three visualization modes:
 
 ![Impact Simulation](docs/screenshots/impact-simulation.png)
 
+#### Layer Focus
+
+![Layer Focus](docs/screenshots/layer-focus.png)
+
+- Shift+click a layer tab to **solo** it; click others to add
+- Convex hulls show layer boundaries; dashed lines show cross-layer links
+- Filtered physics automatically adjust for clearer separation
+
 ### Hierarchy View (DAG Layout)
 
 ![Hierarchy View](docs/screenshots/hierarchy-view.png)
@@ -506,6 +514,14 @@ archtracker check --root .            # クロスレイヤー差分チェック
 - **影響モード**: ファイルをクリックして推移的に影響を受ける全ファイルを表示
 
 ![影響シミュレーション](docs/screenshots/impact-simulation.png)
+
+#### レイヤーフォーカス
+
+![レイヤーフォーカス](docs/screenshots/layer-focus.png)
+
+- レイヤータブを Shift+クリックで**ソロ表示**、他をクリックで追加
+- 凸包でレイヤー境界を表示、破線でクロスレイヤーリンクを表示
+- フィルタ時は物理演算が自動調整され、より明確な分離に
 
 ### 階層ビュー（DAGレイアウト）
 
