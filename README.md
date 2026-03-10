@@ -42,11 +42,12 @@ When AI agents modify code, they **miss cascading impacts**:
 ## Features
 
 - **Dependency Graph Analysis** — Regex-based static analysis for **13 languages** (JS/TS, Python, Rust, Go, Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Dart, Scala)
-- **Multi-Layer Architecture** — Analyze multiple services/layers as a unified graph with cross-layer connection detection (NEW in v0.5.0)
+- **Multi-Layer Architecture** — Analyze multiple services/layers as a unified graph with cross-layer connection detection
 - **Interactive Web Viewer** — Force-directed graph with convex hull layer grouping, hierarchy diagram, diff view with D3.js
+- **Security Hardened** — XSS-safe HTML escaping, path traversal protection on all MCP tools (v0.6.0)
 - **Impact Simulation** — Click any file to visualize transitive dependents (BFS traversal)
 - **Snapshot Diffing** — Save architecture snapshots and detect drift over time
-- **MCP Server** — 5 tools for Claude Code / AI agents via Model Context Protocol
+- **MCP Server** — 6 tools for Claude Code / AI agents via Model Context Protocol
 - **Claude Code Skills** — 6 slash commands (`/arch-check`, `/arch-snapshot`, `/arch-serve`, etc.)
 - **CI Integration** — `--ci` mode + auto-generated GitHub Actions workflow
 - **Bilingual** — Full English/Japanese support (auto-detected from `LANG` env)
@@ -379,11 +380,12 @@ AI エージェントがコードを修正する際、**波及的な影響を見
 ## 機能
 
 - **依存関係グラフ分析** — 正規表現ベースの静的解析、**13言語**対応（JS/TS, Python, Rust, Go, Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, Dart, Scala）
-- **マルチレイヤーアーキテクチャ** — 複数サービス/レイヤーを統合グラフとして分析、クロスレイヤー接続の自動検出（v0.5.0 新機能）
+- **マルチレイヤーアーキテクチャ** — 複数サービス/レイヤーを統合グラフとして分析、クロスレイヤー接続の自動検出
 - **インタラクティブ Web ビューア** — D3.js による力学モデルグラフ（凸包レイヤーグループ表示）、階層図、差分ビュー
+- **セキュリティ強化** — XSS安全なHTMLエスケープ、全MCPツールにパストラバーサル防止（v0.6.0）
 - **影響シミュレーション** — ファイルをクリックして推移的な被依存ファイルを可視化（BFS探索）
 - **スナップショット差分** — アーキテクチャスナップショットを保存し、ドリフトを検出
-- **MCP サーバー** — Model Context Protocol 経由で5つのツールを提供
+- **MCP サーバー** — Model Context Protocol 経由で6つのツールを提供
 - **Claude Code Skills** — 6つのスラッシュコマンド（`/arch-check`、`/arch-snapshot`、`/arch-serve` 等）
 - **CI 統合** — `--ci` モード + GitHub Actions ワークフロー自動生成
 - **多言語対応** — 日本語・英語完全対応（`LANG` 環境変数から自動検出）
