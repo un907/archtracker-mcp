@@ -57,7 +57,11 @@ src/
 │   └── *.test.ts
 ├── web/
 │   ├── server.ts             # node:http サーバー (startViewer → 単一HTML応答、Express不使用)
-│   └── template.ts           # buildGraphPage() — 全 HTML/CSS/JS を template literal で生成 (~1700行)
+│   ├── template.ts           # buildGraphPage() — オーケストレータ + i18n + settings + graph view JS (~1020行)
+│   ├── styles.ts             # buildStyles() — CSS (~157行)
+│   ├── viewer-html.ts        # buildViewerHtml() — HTML body構造 (~165行)
+│   ├── js-hierarchy.ts       # buildHierarchyJs() — 階層図ビュー JS (~325行)
+│   └── js-diff.ts            # buildDiffJs() — 差分ビュー JS (~188行)
 ├── types/
 │   ├── schema.ts             # DependencyGraph, ArchSnapshot, ArchDiff, MultiLayerGraph, LayerMetadata
 │   └── layers.ts             # LayerDefinition, LayerConfig, CrossLayerConnection
@@ -92,28 +96,28 @@ skills/                       # Claude Code Skills (6個)
 4. **`dist/index.js`** — ライブラリ API (programmatic usage)
 
 ### Web Viewer の設計
-- `template.ts` が全 HTML/CSS/JS を1つの文字列として生成 (SPA、外部ファイルなし)
+- 5ファイル構成: `template.ts` (オーケストレータ+graph JS), `styles.ts` (CSS), `viewer-html.ts` (HTML), `js-hierarchy.ts` (階層図), `js-diff.ts` (差分ビュー)
+- 各ファイルは文字列を返す関数をエクスポート → `buildGraphPage()` が連結して単一 HTML を生成 (SPA)
 - D3.js は CDN から読み込み
 - `server.ts`: `node:http` で `/` に HTML を返すだけ (Express 不使用、依存ゼロ)
-- `buildGraphPage(graph, options)` → HTML string → `server.ts` が返す
 - フレームワーク不使用: vanilla JS + d3.js force simulation
 - 状態管理: module-level 変数 + 関数ポインタパターン (`applyLayerFilter`, `hierRelayout`, `hierSyncFromTab`)
-- `template.ts` は巨大 (~1700行) だが意図的に単一ファイル。分割すると HTML/CSS/JS の連携が複雑化する
+- `template.ts` 内の JS は template literal 内の文字列。TypeScript の型チェックは効かない
 
-### template.ts 内部構造 (頻繁に編集するため詳述)
+### template.ts 内部構造
 
 **データ注入** — `buildGraphPage()` が以下をクライアント JS にインライン埋め込み:
 ```
 const DATA = ${JSON.stringify(graphData)};   // nodes, links, dirs, circularFiles
 const LAYERS = ${layersData};                // LayerMetadata[] or null
 const CROSS_EDGES = ${crossEdgesData};       // CrossLayerConnection[] or null
-const DIFF_DATA = ${diffData};               // ArchDiff or null
+const DIFF = ${diffData};                    // ArchDiff or null (js-diff.ts内)
 ```
 
-**3つのビュー** (タブ切替):
-1. **Graph View** (~行700-1050): d3 force simulation, convex hull レイヤーグループ, レイヤータブ
-2. **Hierarchy View** (~行1200-1550): 深度ベース DAG レイアウト, `buildHierarchy()` で遅延構築
-3. **Diff View** (~行1590-1700): 独立 simulation, レイヤーブロッキング, diff-aware ハイライト
+**3つのビュー** (ファイル分割):
+1. **Graph View** (template.ts): d3 force simulation, convex hull レイヤーグループ, レイヤータブ
+2. **Hierarchy View** (js-hierarchy.ts): 深度ベース DAG レイアウト, `buildHierarchy()` で遅延構築
+3. **Diff View** (js-diff.ts): 独立 simulation, レイヤーブロッキング, diff-aware ハイライト
 
 **レイヤーフィルタモデル** (include-filter):
 - `activeLayers: Set<string>` — 空 = 全表示 (フィルタなし), 非空 = 選択されたレイヤーのみ表示
@@ -142,19 +146,25 @@ const DIFF_DATA = ${diffData};               // ArchDiff or null
 - クロスレイヤー接続: 手動定義 (layers.json) + 自動検出 (共有ファイル名)
 - Snapshot schema v1.1: `multiLayer` optional フィールド追加 (v1.0 と後方互換)
 
+### layers.json スキーマ (重要 — 間違えると検出不能)
+- 配置場所: `<projectRoot>/.archtracker/layers.json` (トップレベルではない!)
+- 必須フィールド: `version: "1.0"` (文字列), `layers[]`
+- レイヤー必須: `name`, `targetDir` (NOT `path`), `language` (LanguageId)
+- レイヤー任意: `color`, `description`
+- `connections[]` は任意: `fromLayer`, `fromFile`, `toLayer`, `toFile`, `type`, `label`
+- スキーマ定義: `src/types/layers.ts` の `LayerConfigSchema` (Zod)
+
 ### 解析エンジン
 - 全13言語が `RegexEngine` を使用 (外部依存なし)
 - `LanguageConfig` で言語ごとの import パターン、resolver、コメントスタイルを定義
 - `extractImports` カスタムフックで複雑な構文に対応 (Rust grouped use, C# class references)
 - コメント除去 → import 抽出 → パス解決 → エッジ生成 のパイプライン
 
-### `--root` vs `--target` (重要: マルチレイヤーで最も踏む地雷)
-- `--target <dir>`: 解析対象ディレクトリ (デフォルト `src`)。**明示指定するとマルチレイヤー自動検出がスキップされる**
+### `--root` vs `--target`
+- `--target <dir>`: 解析対象ディレクトリ (デフォルト `src`)
 - `--root <dir>`: プロジェクトルート (`.archtracker/` の場所)。デフォルト `.`
-- マルチレイヤーを使うには: `--root /path/to/project` を指定し、`--target` は指定しない
-- CLI判定 (`resolveGraph`): `process.argv` に `-t` or `--target` があるか → あれば単一ディレクトリ
-- MCP判定 (`resolveGraphForMcp`): `targetDir === "src"` (デフォルト値) か → デフォルトなら layers.json を探す
-- よくある間違い: `archtracker serve --target /tmp/project` → マルチレイヤー無視。正しくは `--root /tmp/project`
+- **layers.json の検出は常に行われる**: `--target` を明示しても、`--root` の `.archtracker/layers.json` があればマルチレイヤー解析を実行
+- v0.6.0で `useMultiLayer` フラグを廃止。`resolveGraph()` が projectRoot の layers.json を常にチェックする設計に変更
 
 ### npm パッケージ構成
 - `package.json` の `"files": ["dist", "skills"]` — dist/ と skills/ のみ publish
@@ -199,15 +209,24 @@ npm run test:watch            # ウォッチモード
 ## Web Viewer 開発時の確認方法
 
 ```bash
-# 13レイヤーテスト用フィクスチャ (要事前セットアップ)
-node dist/bin.js serve --port 3456 --root /tmp/multi-layer-visual-test
+# 大規模7レイヤーフィクスチャ (74ファイル, レイヤー/hull/cross-layer全機能テスト可能)
+node dist/bin.js serve --port 3456 --root src/analyzer/__fixtures__/large-project
 
-# 単一ディレクトリ
+# 単一ディレクトリ (レイヤーなし)
 node dist/bin.js serve --target src --port 3456
+
+# ⚠️ --target を明示指定するとマルチレイヤー検出がスキップされる!
+# マルチレイヤーテストは必ず --root のみで起動すること
 ```
 
 ブラウザで http://localhost:3456 を開いて目視確認。
 `template.ts` 変更後は `npm run build` → サーバー再起動が必要。
+
+### テストフィクスチャ一覧
+- `__fixtures__/large-project/` — 7レイヤー・74ファイル、layers.json + cross-layer connections。全Web Viewer機能の目視テスト用
+- `__fixtures__/multi-layer-project/` — 2レイヤー (Frontend/Backend)、自動テスト用
+- `__fixtures__/sample-project/` — 単一ディレクトリ5ファイル、基本テスト用
+- その他: 各言語ごとのフィクスチャ (cpp, python, rust, go, java, etc.)
 
 ## MCP Tool の使い分け
 
@@ -222,12 +241,19 @@ node dist/bin.js serve --target src --port 3456
 
 `generate_map` と `analyze_existing_architecture` の混同に注意。前者は JSON、後者は人間向け。
 
+## Project Conventions
+
+- **不要コードのアーカイブ**: 使用しなくなったテストコードやコンポーネントは明示的にアーカイブディレクトリにまとめること。暗黙的に放置しない
+- **テストフィクスチャの管理**: テストフィクスチャは保持するが、`.gitignore` や `tsconfig.json` の `exclude` で適切に管理する。コミットサイズ・型チェック対象に注意
+
 ## Gotchas
 
-- `template.ts` 内の JS は template literal 内の文字列。TypeScript の型チェックは効かない。ブラウザコンソールで確認
-- `const` 宣言の Temporal Dead Zone (TDZ) に注意: `template.ts` 内の変数宣言順序が初期化順序と一致する必要がある。特に `activeLayers` は `nodeColor()` より前に宣言必須 (v0.5.0で踏んだバグ)
-- `resolveGraph()` (CLI) と `resolveGraphForMcp()` (MCP) は別実装。CLI は `process.argv` で `--target` 明示判定、MCP は `targetDir === "src"` で判定
+- Web viewer の JS は template literal 内の文字列 (template.ts, js-hierarchy.ts, js-diff.ts)。TypeScript の型チェックは効かない。ブラウザコンソールで確認
+- `const` 宣言の Temporal Dead Zone (TDZ) に注意: template.ts 内の変数宣言順序が初期化順序と一致する必要がある。特に `activeLayers` は `nodeColor()` より前に宣言必須 (v0.5.0で踏んだバグ)
+- `resolveGraph()` は `src/analyzer/resolve.ts` に統一済み。layers.json の存在を常にチェック (`useMultiLayer` フラグは廃止)
 - Snapshot schema version: v1.0 と v1.1 の両方を Zod union で受け入れ。新規保存は常に v1.1
 - Web viewer の force simulation: `DATA.links` 内のオブジェクトは d3 により source/target が node reference に変更される (破壊的)。Diff view は独立した `simLinks` / `simNodes` を使う必要がある
-- Diff view の `updateDiffHulls()` は tick ごとに呼ぶとフリーズする。3 tick に1回にスロットル
+- Diff view の `updateDiffHulls()` は tick ごとに呼ぶとフリーズする。5 tick に1回にスロットル (v0.6.0で改善)
 - Web viewer のデバッグ: `npm run build` → サーバー再起動 → ブラウザリロード。ホットリロードなし
+- layers.json のフィールド名は `targetDir` であり `path` ではない。`version: "1.0"` も必須。間違えると silent fail で LAYERS=null になる
+- v0.6.0以前: `--target` 明示で `useMultiLayer=false` になる地雷があった。v0.6.0で修正済み

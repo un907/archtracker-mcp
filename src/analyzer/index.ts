@@ -11,3 +11,5 @@ export {
 export type { SearchResult } from "./search.js";
 export { formatAnalysisReport } from "./report.js";
 export { analyzeMultiLayer, detectCrossLayerConnections } from "./multi-layer.js";
+export { resolveGraph } from "./resolve.js";
+export type { ResolvedGraph } from "./resolve.js";

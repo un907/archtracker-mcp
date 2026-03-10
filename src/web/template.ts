@@ -2,6 +2,11 @@ import type { DependencyGraph, LayerMetadata } from "../types/schema.js";
 import type { ArchDiff } from "../types/schema.js";
 import type { Locale } from "../i18n/index.js";
 import type { CrossLayerConnection } from "../types/layers.js";
+import { buildStyles } from "./styles.js";
+import { buildViewerHtml } from "./viewer-html.js";
+import { buildHierarchyJs } from "./js-hierarchy.js";
+import { buildDiffJs } from "./js-diff.js";
+import { ESC_FUNCTION_JS } from "../utils/html-escape.js";
 
 export interface ViewerOptions {
   locale?: Locale;
@@ -55,319 +60,10 @@ export function buildGraphPage(graph: DependencyGraph, options: ViewerOptions = 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${projectName} — Architecture Viewer</title>
-<style>
-:root {
-  --bg: #0d1117; --bg-card: #161b22; --bg-hover: #1c2129;
-  --border: #30363d; --border-active: #58a6ff;
-  --text: #c9d1d9; --text-dim: #8b949e; --text-muted: #484f58;
-  --accent: #58a6ff; --green: #3fb950; --red: #f97583; --yellow: #f0e68c;
-  --radius: 8px; --font-size: 13px;
-}
-[data-theme="light"] {
-  --bg: #ffffff; --bg-card: #f6f8fa; --bg-hover: #eef1f5;
-  --border: #d0d7de; --border-active: #0969da;
-  --text: #1f2328; --text-dim: #656d76; --text-muted: #8b949e;
-  --accent: #0969da; --green: #1a7f37; --red: #cf222e; --yellow: #9a6700;
-}
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; font-size: 13px; overflow: hidden; transition: background 0.3s, color 0.3s; }
-
-/* ─── Tab bar ──────────────────────────────── */
-#tab-bar { position: fixed; top: 0; left: 0; right: 0; height: 44px; background: var(--bg-card); border-bottom: 1px solid var(--border); display: flex; align-items: center; z-index: 30; padding: 0 16px; gap: 2px; transition: background 0.3s; }
-#tab-bar .logo { font-weight: 700; font-size: 14px; color: var(--accent); margin-right: 16px; letter-spacing: -0.3px; outline: none; border-bottom: 1px dashed transparent; cursor: text; min-width: 40px; }
-#tab-bar .logo:hover { border-bottom-color: var(--text-muted); }
-#tab-bar .logo:focus { border-bottom-color: var(--accent); }
-.tab { padding: 8px 16px; font-size: 13px; color: var(--text-dim); cursor: pointer; border-radius: 6px 6px 0 0; border: 1px solid transparent; border-bottom: none; transition: all 0.15s; user-select: none; position: relative; top: 1px; }
-.tab:hover { color: var(--text); background: var(--bg-hover); }
-.tab.active { color: var(--text); background: var(--bg); border-color: var(--border); }
-.tab-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
-.tab-stats { font-size: 12px; color: var(--text-muted); display: flex; gap: 14px; }
-.tab-stats span b { color: var(--text-dim); }
-.settings-btn { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; cursor: pointer; color: var(--text-dim); font-size: 16px; transition: all 0.15s; }
-.settings-btn:hover { border-color: var(--accent); color: var(--text); }
-
-/* ─── Views ────────────────────────────────── */
-.view { position: fixed; top: 44px; left: 0; right: 0; bottom: 0; display: none; }
-.view.active { display: block; }
-.view svg { width: 100%; height: 100%; }
-
-/* ─── HUD ─────────────────────────────────── */
-#hud { position: absolute; top: 12px; left: 12px; z-index: 10; display: flex; flex-direction: column; gap: 8px; }
-.hud-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; font-size: 12px; backdrop-filter: blur(8px); transition: background 0.3s; }
-#search-box { display: flex; align-items: center; gap: 8px; }
-#search-box input { background: transparent; border: none; outline: none; color: var(--text); font-size: 13px; width: 180px; }
-#search-box input::placeholder { color: var(--text-muted); }
-kbd { background: #21262d; border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; font-size: 10px; color: var(--text-muted); font-family: inherit; }
-.legend-item { display: flex; align-items: center; gap: 6px; margin: 3px 0; color: var(--text-dim); }
-.legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-
-/* ─── Tooltip (interactive — mouse can enter) ─ */
-#tooltip { position: fixed; display: none; background: var(--bg-card); border: 1px solid var(--accent); border-radius: var(--radius); padding: 14px 16px; font-size: 13px; z-index: 40; max-width: 420px; pointer-events: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); transition: background 0.3s; }
-#tooltip .tt-name { color: var(--accent); font-size: 14px; font-weight: 600; margin-bottom: 8px; word-break: break-all; }
-#tooltip .tt-badge { display: inline-block; background: var(--bg-hover); border-radius: 10px; padding: 1px 8px; font-size: 11px; margin: 0 2px; }
-#tooltip .tt-section { margin-top: 8px; font-size: 12px; color: var(--text-dim); max-height: 140px; overflow-y: auto; }
-#tooltip .tt-section div { padding: 2px 0; }
-#tooltip .tt-out { color: var(--accent); }
-#tooltip .tt-in { color: var(--green); }
-
-/* ─── Filter bar ──────────────────────────── */
-#filter-bar { position: absolute; bottom: 12px; left: 12px; right: 120px; z-index: 10; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
-#filter-bar > * { pointer-events: auto; }
-#filter-layer-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-#filter-dir-toggle { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 3px 10px; font-size: 11px; cursor: pointer; user-select: none; color: var(--text-dim); transition: all 0.15s; flex-shrink: 0; }
-#filter-dir-toggle:hover { border-color: var(--text-dim); color: var(--text); }
-#filter-dir-toggle.open { border-color: var(--accent); color: var(--text); }
-#filter-dir-panel { display: none; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; max-height: 220px; overflow-y: auto; backdrop-filter: blur(8px); }
-#filter-dir-panel.open { display: block; }
-.dir-group { margin-bottom: 8px; }
-.dir-group:last-child { margin-bottom: 0; }
-.dir-group-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
-.dir-group-label .dg-dot { width: 6px; height: 6px; border-radius: 50%; }
-.dir-group-pills { display: flex; flex-wrap: wrap; gap: 3px; }
-.filter-pill { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 2px 8px; font-size: 10px; cursor: pointer; user-select: none; transition: all 0.15s; display: flex; align-items: center; gap: 4px; }
-.filter-pill:hover { border-color: var(--text-dim); }
-.filter-pill.active { border-color: var(--accent); }
-.filter-pill .pill-dot { width: 5px; height: 5px; border-radius: 50%; }
-.filter-pill .pill-count { color: var(--text-muted); font-size: 9px; }
-
-/* ─── Zoom controls ───────────────────────── */
-#zoom-ctrl { position: absolute; bottom: 52px; right: 12px; z-index: 10; display: flex; flex-direction: column; gap: 2px; }
-#zoom-ctrl button { width: 32px; height: 32px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-dim); border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; transition: all 0.1s; }
-#zoom-ctrl button:hover { background: var(--bg-hover); color: var(--text); }
-
-/* ─── Detail panel ────────────────────────── */
-#detail { position: absolute; top: 12px; right: 12px; width: 280px; z-index: 10; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; font-size: 13px; display: none; max-height: calc(100vh - 100px); overflow-y: auto; transition: background 0.3s; }
-#detail.open { display: block; }
-#detail .detail-name { color: var(--accent); font-weight: 600; font-size: 14px; word-break: break-all; margin-bottom: 8px; }
-#detail .detail-meta { color: var(--text-dim); margin-bottom: 12px; }
-#detail .detail-section { margin-top: 10px; }
-#detail .detail-section h4 { font-size: 11px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 4px; }
-#detail .detail-list { list-style: none; }
-#detail .detail-list li { padding: 3px 0; font-size: 12px; color: var(--text-dim); cursor: pointer; }
-#detail .detail-list li:hover { color: var(--accent); }
-#detail .close-btn { position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; }
-
-/* ─── Settings panel ──────────────────────── */
-#settings-panel { position: fixed; top: 44px; right: 0; width: 280px; height: calc(100vh - 44px); background: var(--bg-card); border-left: 1px solid var(--border); z-index: 25; padding: 20px; transform: translateX(100%); transition: transform 0.25s ease, background 0.3s; overflow-y: auto; }
-#settings-panel.open { transform: translateX(0); }
-#settings-panel h3 { font-size: 14px; color: var(--text); margin-bottom: 16px; }
-.setting-group { margin-bottom: 18px; }
-.setting-group label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
-.setting-group select, .setting-group input[type=range] { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 6px 8px; font-size: 13px; }
-.setting-group input[type=range] { padding: 4px 0; border: none; accent-color: var(--accent); }
-.setting-value { font-size: 11px; color: var(--text-muted); text-align: right; }
-.theme-toggle { display: flex; gap: 6px; }
-.theme-btn { flex: 1; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; text-align: center; font-size: 12px; color: var(--text-dim); transition: all 0.15s; }
-.theme-btn:hover { border-color: var(--text-dim); }
-.theme-btn.active { border-color: var(--accent); color: var(--accent); }
-
-/* ─── Hierarchy detail panel ──────────────── */
-#hier-detail { position: absolute; top: 12px; right: 12px; width: 280px; z-index: 10; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; font-size: 13px; display: none; max-height: calc(100vh - 100px); overflow-y: auto; transition: background 0.3s; }
-#hier-detail.open { display: block; }
-#hier-detail .detail-name { color: var(--accent); font-weight: 600; font-size: 14px; word-break: break-all; margin-bottom: 8px; }
-#hier-detail .detail-meta { color: var(--text-dim); margin-bottom: 12px; }
-#hier-detail .detail-section { margin-top: 10px; }
-#hier-detail .detail-section h4 { font-size: 11px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 4px; }
-#hier-detail .detail-list { list-style: none; }
-#hier-detail .detail-list li { padding: 3px 0; font-size: 12px; color: var(--text-dim); cursor: pointer; }
-#hier-detail .detail-list li:hover { color: var(--accent); }
-#hier-detail .close-btn { position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; }
-
-/* ─── Hierarchy ───────────────────────────── */
-.hier-node { cursor: pointer; }
-.hier-node rect { rx: 6; ry: 6; stroke-width: 1.5; transition: stroke 0.15s; }
-.hier-node:hover rect { stroke: var(--accent) !important; stroke-width: 2; }
-.hier-node text { fill: var(--text); pointer-events: none; }
-.hier-link { fill: none; stroke: var(--border); stroke-width: 1; }
-.hier-layer-label { fill: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-
-/* ─── Impact mode ─────────────────────────── */
-#impact-btn.active { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
-#impact-badge { position: absolute; bottom: 52px; left: 12px; z-index: 10; display: none; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: var(--radius); }
-
-/* ─── Help bar ─────────────────────────────── */
-#help-bar { position: absolute; bottom: 12px; right: 12px; z-index: 10; font-size: 11px; color: var(--text-muted); background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; transition: background 0.3s; }
-
-/* ─── Layer hulls ─────────────────────────── */
-.layer-hull { fill-opacity: 0.06; stroke-width: 1.5; stroke-dasharray: 6,4; pointer-events: none; }
-.layer-hull-label { font-size: 13px; font-weight: 700; letter-spacing: 0.5px; pointer-events: none; opacity: 0.7; }
-
-/* ─── Layer tabs ──────────────────────────── */
-#layer-tabs { display: flex; gap: 2px; margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--border); }
-.layer-tab { padding: 4px 10px; font-size: 11px; color: var(--text-dim); cursor: pointer; border-radius: 4px; border: 1px solid transparent; transition: all 0.15s; user-select: none; display: flex; align-items: center; gap: 5px; }
-.layer-tab:hover { color: var(--text); background: var(--bg-hover); }
-.layer-tab.active { border-color: var(--accent); color: var(--text); }
-.layer-tab .lt-dot { width: 6px; height: 6px; border-radius: 50%; }
-
-/* ─── Layer filter pills ─────────────────── */
-.layer-pill { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 2px 9px; font-size: 11px; font-weight: 600; cursor: pointer; user-select: none; transition: all 0.15s; display: flex; align-items: center; gap: 5px; }
-.layer-pill:hover { border-color: var(--text-dim); }
-.layer-pill.active { border-color: var(--accent); }
-.layer-pill .lp-dot { width: 6px; height: 6px; border-radius: 50%; }
-.layer-pill .lp-count { color: var(--text-muted); font-size: 9px; font-weight: 400; }
-</style>
+${buildStyles()}
 </head>
 <body>
-
-<!-- Tab bar -->
-<div id="tab-bar">
-  <span class="logo" id="project-title" contenteditable="true" spellcheck="false" title="Click to edit project name"></span>
-  <div class="tab active" data-view="graph-view" data-i18n="tab.graph">Graph</div>
-  <div class="tab" data-view="hier-view" data-i18n="tab.hierarchy">Hierarchy</div>
-  <div class="tab" data-view="diff-view" id="diff-tab" style="display:none" data-i18n="tab.diff">Diff</div>
-  <div id="layer-tabs"></div>
-  <div class="tab-right">
-    <div class="tab-stats">
-      <span><span data-i18n="stats.files">Files</span> <b id="s-files">0</b></span>
-      <span><span data-i18n="stats.edges">Edges</span> <b id="s-edges">0</b></span>
-      <span><span data-i18n="stats.circular">Circular</span> <b id="s-circular">0</b></span>
-    </div>
-    <button class="settings-btn" onclick="toggleSettings()" title="Settings">⚙</button>
-  </div>
-</div>
-
-<!-- Settings panel -->
-<div id="settings-panel">
-  <h3 data-i18n="settings.title">Settings</h3>
-  <div class="setting-group">
-    <label data-i18n="settings.theme">Theme</label>
-    <div class="theme-toggle">
-      <div class="theme-btn active" data-theme-val="dark" onclick="setTheme('dark')">🌙 Dark</div>
-      <div class="theme-btn" data-theme-val="light" onclick="setTheme('light')">☀️ Light</div>
-    </div>
-  </div>
-  <div class="setting-group">
-    <label data-i18n="settings.fontSize">Font Size</label>
-    <input type="range" id="font-size-slider" min="10" max="18" value="13" oninput="setFontSize(this.value)">
-    <div class="setting-value"><span id="font-size-val">13</span>px</div>
-  </div>
-  <div class="setting-group">
-    <label data-i18n="settings.nodeSize">Node Size</label>
-    <input type="range" id="node-size-slider" min="50" max="200" value="100" oninput="setNodeScale(this.value)">
-    <div class="setting-value"><span id="node-size-val">100</span>%</div>
-  </div>
-  <div class="setting-group">
-    <label data-i18n="settings.linkOpacity">Link Opacity</label>
-    <input type="range" id="link-opacity-slider" min="10" max="100" value="40" oninput="setLinkOpacity(this.value)">
-    <div class="setting-value"><span id="link-opacity-val">40</span>%</div>
-  </div>
-  <div class="setting-group">
-    <label data-i18n="settings.gravity">Gravity</label>
-    <input type="range" id="gravity-slider" min="10" max="500" value="150" oninput="setGravity(this.value)">
-    <div class="setting-value"><span id="gravity-val">150</span></div>
-  </div>
-  <div id="layer-gravity-setting" class="setting-group" style="display:none">
-    <label>Layer Cohesion</label>
-    <input type="range" id="layer-gravity-slider" min="1" max="40" value="12" oninput="setLayerGravity(this.value)">
-    <div class="setting-value"><span id="layer-gravity-val">12</span></div>
-  </div>
-  <div class="setting-group">
-    <label data-i18n="settings.language">Language</label>
-    <div class="theme-toggle">
-      <div class="theme-btn lang-btn" data-lang="en" onclick="setLang('en')">English</div>
-      <div class="theme-btn lang-btn" data-lang="ja" onclick="setLang('ja')">日本語</div>
-    </div>
-  </div>
-  <div id="cross-layer-setting" class="setting-group" style="display:none">
-    <label>Cross-layer Links</label>
-    <div class="theme-toggle">
-      <div class="theme-btn active" id="cross-link-toggle" onclick="toggleCrossLinks()">ON</div>
-    </div>
-  </div>
-  <div class="setting-group" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-    <label data-i18n="settings.export">Export</label>
-    <div class="theme-toggle">
-      <div class="theme-btn" onclick="exportSVG()">SVG</div>
-      <div class="theme-btn" onclick="exportPNG()">PNG</div>
-    </div>
-  </div>
-</div>
-
-<!-- Graph View -->
-<div id="graph-view" class="view active">
-  <svg id="graph-svg"></svg>
-  <div id="hud">
-    <div class="hud-panel" id="search-box">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" style="color:var(--text-muted)"><path d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z"/></svg>
-      <input id="search" type="text" data-i18n-placeholder="search.placeholder" placeholder="Search files..." autocomplete="off">
-      <kbd>/</kbd>
-    </div>
-    <div class="hud-panel" id="legend-panel">
-      <div id="layer-legend"></div>
-      <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> <span data-i18n="legend.circular">Circular dep</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:var(--text-muted)"></div> <span data-i18n="legend.orphan">Orphan</span></div>
-      <div class="legend-item"><div class="legend-dot" style="border:2px solid var(--yellow);width:6px;height:6px"></div> <span data-i18n="legend.highCoupling">High coupling</span></div>
-      <div class="legend-item" style="margin-top:4px;font-size:11px;gap:3px"><span style="color:var(--accent)">—→</span> <span data-i18n="legend.imports">imports</span> <span style="margin-left:6px;color:var(--green)">←—</span> <span data-i18n="legend.importedBy">imported by</span></div>
-    </div>
-  </div>
-  <div id="detail">
-    <button class="close-btn" onclick="closeDetail()">✕</button>
-    <div class="detail-name" id="d-name"></div>
-    <div class="detail-meta" id="d-meta"></div>
-    <div class="detail-section"><h4 data-i18n="detail.importedBy">Imported by</h4><ul class="detail-list" id="d-dependents"></ul></div>
-    <div class="detail-section"><h4 data-i18n="detail.imports">Imports</h4><ul class="detail-list" id="d-deps"></ul></div>
-  </div>
-  <div id="filter-bar">
-    <div id="filter-dir-panel"></div>
-    <div id="filter-layer-row"></div>
-  </div>
-  <div id="zoom-ctrl">
-    <button onclick="zoomIn()" title="Zoom in">+</button>
-    <button onclick="zoomOut()" title="Zoom out">−</button>
-    <button onclick="zoomFit()" title="Fit">⊡</button>
-    <button id="impact-btn" onclick="toggleImpactMode()" title="Impact simulation" style="font-size:12px;margin-top:4px" data-i18n="impact.btn">Impact</button>
-  </div>
-  <div id="impact-badge"></div>
-  <div id="help-bar" data-i18n="help.graph">Scroll: zoom · Drag: pan · Click: select · / search</div>
-</div>
-
-<!-- Hierarchy View -->
-<div id="hier-view" class="view">
-  <svg id="hier-svg"></svg>
-  <div id="hier-hud" style="position:absolute;top:12px;left:12px;z-index:10;display:flex;flex-direction:column;gap:8px;">
-    <div class="hud-panel" id="hier-legend">
-      <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> <span data-i18n="legend.circular">Circular dep</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:var(--text-muted)"></div> <span data-i18n="legend.orphan">Orphan</span></div>
-      <div class="legend-item"><div class="legend-dot" style="border:2px solid var(--yellow);width:6px;height:6px"></div> <span data-i18n="legend.highCoupling">High coupling</span></div>
-    </div>
-  </div>
-  <div id="hier-detail">
-    <button class="close-btn" onclick="closeHierDetail()">✕</button>
-    <div class="detail-name" id="hd-name"></div>
-    <div class="detail-meta" id="hd-meta"></div>
-    <div class="detail-section"><h4 data-i18n="detail.importedBy">Imported by</h4><ul class="detail-list" id="hd-dependents"></ul></div>
-    <div class="detail-section"><h4 data-i18n="detail.imports">Imports</h4><ul class="detail-list" id="hd-deps"></ul></div>
-  </div>
-  <div id="hier-filter-bar" style="position:absolute;bottom:12px;left:12px;right:120px;z-index:10;display:none;">
-    <div id="hier-filter-row" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
-  </div>
-  <div id="help-bar" style="position:absolute" data-i18n="help.hierarchy">Scroll to navigate · Click to highlight</div>
-</div>
-
-<!-- Diff View -->
-<div id="diff-view" class="view">
-  <svg id="diff-svg"></svg>
-  <div id="diff-legend" style="position:absolute;top:12px;left:12px;z-index:10;">
-    <div class="hud-panel">
-      <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> <span data-i18n="diff.addedLabel">Added</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> <span data-i18n="diff.removedLabel">Removed</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div> <span data-i18n="diff.modifiedLabel">Modified</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div> <span data-i18n="diff.affectedLabel">Affected</span></div>
-    </div>
-  </div>
-  <div id="help-bar" style="position:absolute" data-i18n="help.diff">Green=added · Red=removed · Yellow=modified · Blue=affected</div>
-</div>
-
-<!-- Tooltip (shared, interactive) -->
-<div id="tooltip">
-  <div class="tt-name" id="tt-name"></div>
-  <div>
-    <span class="tt-badge tt-out" id="tt-dep-count"></span> <span data-i18n="tooltip.imports">imports</span>
-    <span class="tt-badge tt-in" id="tt-dpt-count" style="margin-left:6px"></span> <span data-i18n="tooltip.importedBy">imported by</span>
-  </div>
-  <div class="tt-section" id="tt-details"></div>
-</div>
-
+${buildViewerHtml()}
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <script>
 // ═══════════════════════════════════════════════
@@ -391,6 +87,8 @@ const I18N = {
     'help.diff': 'Green=added · Red=removed · Yellow=modified · Blue=affected',
     'tab.diff': 'Diff',
     'diff.addedLabel': 'Added', 'diff.removedLabel': 'Removed', 'diff.modifiedLabel': 'Modified', 'diff.affectedLabel': 'Affected',
+    'diff.showAll': 'Show all', 'diff.focusChanges': 'Focus changes', 'diff.noImpact': 'No downstream impact',
+    'diff.affectedByChange': 'Affected by this change',
   },
   ja: {
     'tab.graph': 'グラフ', 'tab.hierarchy': '階層図',
@@ -409,6 +107,8 @@ const I18N = {
     'help.diff': '緑=追加 · 赤=削除 · 黄=変更 · 青=影響',
     'tab.diff': '差分',
     'diff.addedLabel': '追加', 'diff.removedLabel': '削除', 'diff.modifiedLabel': '変更', 'diff.affectedLabel': '影響',
+    'diff.showAll': '全表示', 'diff.focusChanges': '変更のみ表示', 'diff.noImpact': '下流への影響なし',
+    'diff.affectedByChange': 'この変更の影響範囲',
   }
 };
 let currentLang = '${locale}';
@@ -426,6 +126,7 @@ function applyI18n() {
 }
 window.setLang = (lang) => { currentLang = lang; applyI18n(); saveSettings(); };
 function i(key) { return (I18N[currentLang] || I18N.en)[key] || key; }
+${ESC_FUNCTION_JS}
 
 // ═══════════════════════════════════════════════
 // SETTINGS (persisted to localStorage)
@@ -476,7 +177,11 @@ window.setGravity = (v) => {
   gravityStrength = +v;
   document.getElementById('gravity-val').textContent = v;
   if (typeof simulation !== 'undefined') {
-    simulation.force('charge', d3.forceManyBody().strength(-gravityStrength).distanceMax(500));
+    if (typeof updateLayerPhysics === 'function') {
+      updateLayerPhysics();
+    } else {
+      simulation.force('charge', d3.forceManyBody().strength(-gravityStrength).distanceMax(500));
+    }
     simulation.alpha(0.5).restart();
   }
   saveSettings();
@@ -485,8 +190,9 @@ let layerGravity = 12;
 window.setLayerGravity = (v) => {
   layerGravity = +v;
   document.getElementById('layer-gravity-val').textContent = v;
-  if (typeof simulation !== 'undefined' && typeof applyLayerFilter === 'function') {
-    applyLayerFilter();
+  if (typeof simulation !== 'undefined' && typeof updateLayerPhysics === 'function') {
+    updateLayerPhysics();
+    simulation.alpha(0.5).restart();
   }
   saveSettings();
 };
@@ -581,6 +287,7 @@ function fileName(id) { return id.split('/').pop(); }
 // TAB SWITCHING
 // ═══════════════════════════════════════════════
 let hierBuilt = false;
+let diffBuilt = false;
 let hierRelayout = null;
 let hierSyncFromTab = null;
 document.querySelectorAll('.tab').forEach(tab => {
@@ -591,7 +298,10 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById(tab.dataset.view).classList.add('active');
     if (tab.dataset.view === 'hier-view') {
       if (!hierBuilt) { buildHierarchy(); hierBuilt = true; }
-      if (hierSyncFromTab) { hierSyncFromTab(null); hierRelayout(); }
+      if (hierSyncFromTab) { hierSyncFromTab(); hierRelayout(); }
+    }
+    if (tab.dataset.view === 'diff-view') {
+      if (!diffBuilt) { buildDiffView(); diffBuilt = true; }
     }
   });
 });
@@ -608,8 +318,8 @@ function showTooltip(e, d) {
   document.getElementById('tt-name').textContent = d.id;
   document.getElementById('tt-dep-count').textContent = d.deps;
   document.getElementById('tt-dpt-count').textContent = d.dependents;
-  const out = (d.dependencies||[]).map(x => '<div class="tt-out">→ '+x+'</div>');
-  const inc = (d.dependentsList||[]).map(x => '<div class="tt-in">← '+x+'</div>');
+  const out = (d.dependencies||[]).map(x => '<div class="tt-out">→ '+esc(x)+'</div>');
+  const inc = (d.dependentsList||[]).map(x => '<div class="tt-in">← '+esc(x)+'</div>');
   document.getElementById('tt-details').innerHTML = [...out, ...inc].join('');
   tooltip.style.display = 'block';
   positionTooltip(e);
@@ -760,6 +470,7 @@ const activeDirs = new Set(DATA.dirs);
 const dirCounts = {};
 DATA.nodes.forEach(n => dirCounts[n.dir] = (dirCounts[n.dir] || 0) + 1);
 var applyLayerFilter = null; // hoisted for dir-filter integration
+var updateLayerPhysics = null; // hoisted — updates charge/layer forces without visibility changes
 
 if (LAYERS && LAYERS.length > 0) {
   // ─── Water droplet physics: intra-layer cohesion + inter-layer separation ───
@@ -933,7 +644,7 @@ if (LAYERS && LAYERS.length > 0) {
   LAYERS.forEach(layer => {
     const item = document.createElement('div');
     item.className = 'legend-item';
-    item.innerHTML = '<div class="legend-dot" style="background:' + layer.color + '"></div> ' + layer.name;
+    item.innerHTML = '<div class="legend-dot" style="background:' + esc(layer.color) + '"></div> ' + esc(layer.name);
     layerLegend.appendChild(item);
   });
   // Cross-layer edge legend
@@ -965,7 +676,7 @@ if (LAYERS && LAYERS.length > 0) {
     const tab = document.createElement('div');
     tab.className = 'layer-tab';
     tab.dataset.layer = layer.name;
-    tab.innerHTML = '<div class="lt-dot" style="background:' + layer.color + '"></div>' + layer.name;
+    tab.innerHTML = '<div class="lt-dot" style="background:' + esc(layer.color) + '"></div>' + esc(layer.name);
     tab.onclick = (e) => {
       if (e.shiftKey) {
         // Shift+click: solo this layer
@@ -1043,7 +754,16 @@ if (LAYERS && LAYERS.length > 0) {
     const visCirc = DATA.circularFiles.filter(f => visibleIds.has(f));
     document.getElementById('s-circular').textContent = visCirc.length;
     updateHulls();
-    // Adjust physics: single-layer = centered, multi-select = compact, all = full spread
+    // Delegate physics update and zoom to fit
+    updateLayerPhysics();
+    simulation.alpha(0.6).restart();
+    setTimeout(() => zoomFit(), 600);
+  }
+
+  // Separated physics update: handles charge/layer forces based on filter state.
+  // Called by applyLayerFilter (with zoomFit), setGravity, setLayerGravity (without zoomFit).
+  updateLayerPhysics = function() {
+    const isSingleLayer = activeLayers.size === 1;
     const lStrength = layerGravity / 100;
     if (isSingleLayer) {
       simulation.force('charge', d3.forceManyBody().strength(-gravityStrength * 3).distanceMax(800));
@@ -1055,9 +775,6 @@ if (LAYERS && LAYERS.length > 0) {
       simulation.force('layerX', d3.forceX(d => centers[d.layer]?.x || 0).strength(d => d.layer ? lStrength : 0.03));
       simulation.force('layerY', d3.forceY(d => centers[d.layer]?.y || 0).strength(d => d.layer ? lStrength : 0.03));
     }
-    simulation.alpha(0.6).restart();
-    // Zoom to fit visible nodes after simulation settles
-    setTimeout(() => zoomFit(), 600);
   }
 
   // ─── Layer filter pills (new grouped bar) ────────────────────
@@ -1093,7 +810,7 @@ if (LAYERS && LAYERS.length > 0) {
     const pill = document.createElement('div');
     pill.className = 'layer-pill';
     pill.dataset.layer = layer.name;
-    pill.innerHTML = '<div class="lp-dot" style="background:' + layer.color + '"></div>' + layer.name + ' <span class="lp-count">' + layerNodes.length + '</span>';
+    pill.innerHTML = '<div class="lp-dot" style="background:' + esc(layer.color) + '"></div>' + esc(layer.name) + ' <span class="lp-count">' + layerNodes.length + '</span>';
     pill.onclick = () => {
       if (activeLayers.has(layer.name)) activeLayers.delete(layer.name);
       else activeLayers.add(layer.name);
@@ -1119,7 +836,7 @@ if (LAYERS && LAYERS.length > 0) {
       group.className = 'dir-group';
       const label = document.createElement('div');
       label.className = 'dir-group-label';
-      label.innerHTML = '<div class="dg-dot" style="background:' + layer.color + '"></div>' + layer.name;
+      label.innerHTML = '<div class="dg-dot" style="background:' + esc(layer.color) + '"></div>' + esc(layer.name);
       group.appendChild(label);
       const pillsWrap = document.createElement('div');
       pillsWrap.className = 'dir-group-pills';
@@ -1127,7 +844,7 @@ if (LAYERS && LAYERS.length > 0) {
         const dp = document.createElement('div');
         dp.className = 'filter-pill active';
         const shortDir = dir.includes('/') ? dir.substring(dir.indexOf('/') + 1) : dir;
-        dp.innerHTML = '<div class="pill-dot" style="background:' + dirColor(dir) + '"></div>' + (shortDir || '.') + ' <span class="pill-count">' + (dirCounts[dir] || 0) + '</span>';
+        dp.innerHTML = '<div class="pill-dot" style="background:' + dirColor(dir) + '"></div>' + esc(shortDir || '.') + ' <span class="pill-count">' + (dirCounts[dir] || 0) + '</span>';
         dp.onclick = () => {
           if (activeDirs.has(dir)) { activeDirs.delete(dir); dp.classList.remove('active'); }
           else { activeDirs.add(dir); dp.classList.add('active'); }
@@ -1201,12 +918,15 @@ svg.on('click', () => {
 function showDetail(d) {
   const p=document.getElementById('detail');
   document.getElementById('d-name').textContent=d.id;
-  document.getElementById('d-meta').innerHTML=i('detail.dir')+': '+d.dir+'<br>'+i('detail.dependencies')+': '+d.deps+' · '+i('detail.dependents')+': '+d.dependents;
+  document.getElementById('d-meta').innerHTML=i('detail.dir')+': '+esc(d.dir)+'<br>'+i('detail.dependencies')+': '+d.deps+' \\u00b7 '+i('detail.dependents')+': '+d.dependents;
   const deptL=document.getElementById('d-dependents'), depsL=document.getElementById('d-deps');
-  deptL.innerHTML=(d.dependentsList||[]).map(x=>'<li onclick="focusNode(\\''+x+'\\')">← '+x+'</li>').join('')||'<li style="color:var(--text-muted)">'+i('detail.none')+'</li>';
-  depsL.innerHTML=(d.dependencies||[]).map(x=>'<li onclick="focusNode(\\''+x+'\\')">→ '+x+'</li>').join('')||'<li style="color:var(--text-muted)">'+i('detail.none')+'</li>';
+  deptL.innerHTML=(d.dependentsList||[]).map(x=>'<li data-focus="'+esc(x)+'">\\u2190 '+esc(x)+'</li>').join('')||'<li style="color:var(--text-muted)">'+i('detail.none')+'</li>';
+  depsL.innerHTML=(d.dependencies||[]).map(x=>'<li data-focus="'+esc(x)+'">\\u2192 '+esc(x)+'</li>').join('')||'<li style="color:var(--text-muted)">'+i('detail.none')+'</li>';
   p.classList.add('open');
 }
+// Event delegation for detail panel list items (avoids inline onclick)
+document.getElementById('d-dependents').addEventListener('click', function(e) { var li=e.target.closest('li[data-focus]'); if(li) focusNode(li.dataset.focus); });
+document.getElementById('d-deps').addEventListener('click', function(e) { var li=e.target.closest('li[data-focus]'); if(li) focusNode(li.dataset.focus); });
 window.closeDetail=()=>document.getElementById('detail').classList.remove('open');
 window.focusNode=(id)=>{
   const n=DATA.nodes.find(x=>x.id===id); if(!n)return; showDetail(n);
@@ -1239,7 +959,7 @@ if (!LAYERS) {
   DATA.dirs.forEach(dir=>{
     const pill=document.createElement('div');
     pill.className='filter-pill active';
-    pill.innerHTML='<div class="pill-dot" style="background:'+dirColor(dir)+'"></div>'+(dir||'.')+' <span class="pill-count">'+dirCounts[dir]+'</span>';
+    pill.innerHTML='<div class="pill-dot" style="background:'+dirColor(dir)+'"></div>'+esc(dir||'.')+' <span class="pill-count">'+dirCounts[dir]+'</span>';
     pill.onclick=()=>{
       if(activeDirs.has(dir)){activeDirs.delete(dir);pill.classList.remove('active');}
       else{activeDirs.add(dir);pill.classList.add('active');}
@@ -1312,495 +1032,8 @@ window.addEventListener('resize',()=>{
   svg.attr('width',w).attr('height',h);
 });
 
-// ═══════════════════════════════════════════════
-// HIERARCHY VIEW
-// ═══════════════════════════════════════════════
-function buildHierarchy(){
-  const hSvg=d3.select('#hier-svg');
-  const hG=hSvg.append('g');
-  const hZoom=d3.zoom().scaleExtent([0.1,4]).on('zoom',e=>hG.attr('transform',e.transform));
-  hSvg.call(hZoom);
-
-  const nodeMap={}; DATA.nodes.forEach(n=>nodeMap[n.id]=n);
-  const importsMap={}; DATA.links.forEach(l=>{const s=l.source.id??l.source,t=l.target.id??l.target;if(!importsMap[s])importsMap[s]=[];importsMap[s].push(t);});
-
-  const entryPoints=DATA.nodes.filter(n=>n.dependents===0).map(n=>n.id);
-  const layers={};const visited=new Set();
-  const queue=entryPoints.map(id=>({id,layer:0}));
-  DATA.nodes.forEach(n=>{if(n.isOrphan)layers[n.id]=0;});
-
-  while(queue.length>0){
-    const{id,layer}=queue.shift();
-    if(visited.has(id)&&(layers[id]??-1)>=layer)continue;
-    layers[id]=Math.max(layers[id]??0,layer);visited.add(id);
-    (importsMap[id]||[]).forEach(t=>queue.push({id:t,layer:layer+1}));
-  }
-  DATA.nodes.forEach(n=>{if(!(n.id in layers))layers[n.id]=0;});
-
-  const maxLayer=Math.max(0,...Object.values(layers));
-  const layerGroups={};
-  for(let i=0;i<=maxLayer;i++)layerGroups[i]=[];
-  Object.entries(layers).forEach(([id,l])=>layerGroups[l].push(id));
-  Object.values(layerGroups).forEach(arr=>arr.sort((a,b)=>(nodeMap[a]?.dir||'').localeCompare(nodeMap[b]?.dir||'')||a.localeCompare(b)));
-
-  const boxW=200,boxH=30,gapX=24,gapY=70,padY=60,padX=40;
-  const positions={};let maxRowWidth=0;
-  for(let layer=0;layer<=maxLayer;layer++){const items=layerGroups[layer];maxRowWidth=Math.max(maxRowWidth,items.length*(boxW+gapX)-gapX);}
-  for(let layer=0;layer<=maxLayer;layer++){
-    const items=layerGroups[layer],rowWidth=items.length*(boxW+gapX)-gapX,startX=padX+(maxRowWidth-rowWidth)/2;
-    items.forEach((id,i)=>{positions[id]={x:startX+i*(boxW+gapX),y:padY+layer*(boxH+gapY)};});
-  }
-
-  const totalW=maxRowWidth+padX*2,totalH=padY*2+(maxLayer+1)*(boxH+gapY);
-  hSvg.attr('width',Math.max(totalW,W)).attr('height',Math.max(totalH,H));
-
-  const linkG=hG.append('g');
-  DATA.links.forEach(l=>{
-    const sId=l.source.id??l.source,tId=l.target.id??l.target;
-    const s=positions[sId],t=positions[tId]; if(!s||!t)return;
-    const x1=s.x+boxW/2,y1=s.y+boxH,x2=t.x+boxW/2,y2=t.y,midY=(y1+y2)/2;
-    linkG.append('path').attr('class','hier-link')
-      .attr('d',\`M\${x1},\${y1} C\${x1},\${midY} \${x2},\${midY} \${x2},\${y2}\`)
-      .attr('stroke',l.type==='type-only'?'#1f3d5c':'var(--border)')
-      .attr('stroke-dasharray',l.type==='type-only'?'4,3':null)
-      .attr('data-source',sId).attr('data-target',tId);
-  });
-
-  hSvg.append('defs').append('marker').attr('id','harrow').attr('viewBox','0 -3 6 6')
-    .attr('refX',6).attr('refY',0).attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
-    .append('path').attr('d','M0,-3L6,0L0,3Z').attr('fill','var(--border)');
-  linkG.selectAll('path').attr('marker-end','url(#harrow)');
-
-  for(let layer=0;layer<=maxLayer;layer++){
-    if(!layerGroups[layer].length)continue;
-    hG.append('text').attr('class','hier-layer-label').attr('font-size',11)
-      .attr('data-depth-idx',layer)
-      .attr('x',12).attr('y',padY+layer*(boxH+gapY)+boxH/2+4).text('L'+layer);
-  }
-
-  const nodeG=hG.append('g');
-  DATA.nodes.forEach(n=>{
-    const pos=positions[n.id]; if(!pos)return;
-    const gn=nodeG.append('g').attr('class','hier-node').attr('transform',\`translate(\${pos.x},\${pos.y})\`);
-    gn.append('rect').attr('width',boxW).attr('height',boxH)
-      .attr('fill','var(--bg-card)').attr('stroke',nodeColor(n))
-      .attr('stroke-width',circularSet.has(n.id)?2:1.5);
-    gn.append('text').attr('x',8).attr('y',boxH/2+4).attr('font-size',11)
-      .text(fileName(n.id).length>24?fileName(n.id).slice(0,22)+'…':fileName(n.id));
-    gn.append('text').attr('x',boxW-8).attr('y',boxH/2+4)
-      .attr('text-anchor','end').attr('font-size',10).attr('fill','var(--text-muted)')
-      .text(n.dependents>0?'↑'+n.dependents:'');
-    gn.append('text').attr('x',8).attr('y',-4).attr('font-size',9)
-      .attr('fill',dirColor(n.dir)).attr('opacity',0.7).text(n.dir);
-
-    gn.node().__data_id=n.id;
-    gn.on('mouseover',e=>{
-      showTooltip(e,n);
-      if (!hierPinned) hierHighlight(n.id);
-    })
-    .on('mousemove',e=>positionTooltip(e))
-    .on('mouseout',()=>{
-      scheduleHideTooltip();
-      if (!hierPinned) hierResetHighlight();
-    })
-    .on('click',(e)=>{
-      e.stopPropagation();
-      hierPinned=n.id;
-      hierHighlight(n.id);
-      showHierDetail(n);
-    });
-  });
-
-  // Hierarchy highlight helpers
-  let hierPinned=null;
-  function hierHighlight(nId){
-    linkG.selectAll('path')
-      .attr('stroke',function(){const s=this.getAttribute('data-source'),t=this.getAttribute('data-target');if(s===nId)return'#58a6ff';if(t===nId)return'#3fb950';return this.getAttribute('stroke-dasharray')?'#1f3d5c':'var(--border)';})
-      .attr('stroke-width',function(){const s=this.getAttribute('data-source'),t=this.getAttribute('data-target');return(s===nId||t===nId)?2.5:1;})
-      .attr('opacity',function(){const s=this.getAttribute('data-source'),t=this.getAttribute('data-target');return(s===nId||t===nId)?1:0.15;});
-    nodeG.selectAll('.hier-node').attr('opacity',function(){
-      const id=this.__data_id; if(id===nId)return 1;
-      const connected=DATA.links.some(l=>{const s=l.source.id??l.source,t=l.target.id??l.target;return(s===nId&&t===id)||(t===nId&&s===id);});
-      return connected?1:0.3;
-    });
-  }
-  function hierResetHighlight(){
-    hierPinned=null;
-    linkG.selectAll('path')
-      .attr('stroke',function(){return this.getAttribute('stroke-dasharray')?'#1f3d5c':'var(--border)';})
-      .attr('stroke-width',1).attr('opacity',1);
-    nodeG.selectAll('.hier-node').attr('opacity',1);
-  }
-  function showHierDetail(n){
-    const p=document.getElementById('hier-detail');
-    document.getElementById('hd-name').textContent=n.id;
-    document.getElementById('hd-meta').innerHTML=i('detail.dir')+': '+n.dir+'<br>'+i('detail.dependencies')+': '+n.deps+' \u00b7 '+i('detail.dependents')+': '+n.dependents;
-    document.getElementById('hd-dependents').innerHTML=(n.dependentsList||[]).map(x=>'<li>\u2190 '+x+'</li>').join('')||'<li style="color:var(--text-muted)">'+i('detail.none')+'</li>';
-    document.getElementById('hd-deps').innerHTML=(n.dependencies||[]).map(x=>'<li>\u2192 '+x+'</li>').join('')||'<li style="color:var(--text-muted)">'+i('detail.none')+'</li>';
-    p.classList.add('open');
-  }
-  window.closeHierDetail=()=>{document.getElementById('hier-detail').classList.remove('open');hierResetHighlight();tooltip.style.display='none';tooltipLocked=false;};
-
-  // Click on empty space to deselect
-  hSvg.on('click',()=>{closeHierDetail();});
-
-  // Hierarchy filters — layer pills or dir pills
-  const hFilterRow=document.getElementById('hier-filter-row');
-  const hFilterBar=document.getElementById('hier-filter-bar');
-  if (hFilterBar) hFilterBar.style.display='';
-  const hActiveLayers=new Set(); // empty = show all (same as graph view)
-
-  function hierRelayoutInner() {
-    function isVisible(nId) {
-      var nd = nodeMap[nId];
-      if (!nd) return false;
-      if (LAYERS && nd.layer && hActiveLayers.size > 0 && !hActiveLayers.has(nd.layer)) return false;
-      return true;
-    }
-
-    // Build visible layer groups and compact Y positions
-    var visibleDepths = [];
-    var visLayerGroups = {};
-    for (var depth = 0; depth <= maxLayer; depth++) {
-      var visItems = layerGroups[depth].filter(function(id) { return isVisible(id); });
-      if (visItems.length > 0) {
-        visLayerGroups[depth] = visItems;
-        visibleDepths.push(depth);
-      }
-    }
-
-    // Recalculate positions for visible nodes (compacted)
-    var newPositions = {};
-    var newMaxRowWidth = 0;
-    visibleDepths.forEach(function(depth) {
-      newMaxRowWidth = Math.max(newMaxRowWidth, visLayerGroups[depth].length * (boxW + gapX) - gapX);
-    });
-    visibleDepths.forEach(function(depth, yIdx) {
-      var items = visLayerGroups[depth];
-      var rowWidth = items.length * (boxW + gapX) - gapX;
-      var startX = padX + (newMaxRowWidth - rowWidth) / 2;
-      items.forEach(function(id, idx) {
-        newPositions[id] = { x: startX + idx * (boxW + gapX), y: padY + yIdx * (boxH + gapY) };
-      });
-    });
-
-    // Update SVG size
-    var newTotalW = (newMaxRowWidth || 0) + padX * 2;
-    var newTotalH = padY * 2 + Math.max(1, visibleDepths.length) * (boxH + gapY);
-    hSvg.attr('width', Math.max(newTotalW, W)).attr('height', Math.max(newTotalH, H));
-
-    // Update nodes: hide/show + transition positions
-    nodeG.selectAll('.hier-node').each(function() {
-      var nId = this.__data_id;
-      var el = d3.select(this);
-      if (!isVisible(nId) || !newPositions[nId]) {
-        el.attr('display', 'none');
-      } else {
-        el.attr('display', null)
-          .transition().duration(300)
-          .attr('transform', 'translate(' + newPositions[nId].x + ',' + newPositions[nId].y + ')');
-      }
-    });
-
-    // Update links: show only if both endpoints visible, recalculate bezier
-    linkG.selectAll('path').each(function() {
-      var sId = this.getAttribute('data-source');
-      var tId = this.getAttribute('data-target');
-      var el = d3.select(this);
-      if (!isVisible(sId) || !isVisible(tId) || !newPositions[sId] || !newPositions[tId]) {
-        el.attr('display', 'none');
-      } else {
-        var s = newPositions[sId], t = newPositions[tId];
-        var x1 = s.x + boxW / 2, y1 = s.y + boxH;
-        var x2 = t.x + boxW / 2, y2 = t.y;
-        var midY = (y1 + y2) / 2;
-        el.attr('display', null)
-          .transition().duration(300)
-          .attr('d', 'M' + x1 + ',' + y1 + ' C' + x1 + ',' + midY + ' ' + x2 + ',' + midY + ' ' + x2 + ',' + y2);
-      }
-    });
-
-    // Update depth labels: hide empty depths, reposition visible ones
-    hG.selectAll('.hier-layer-label').each(function() {
-      var depthIdx = +this.getAttribute('data-depth-idx');
-      var el = d3.select(this);
-      var yIdx = visibleDepths.indexOf(depthIdx);
-      if (yIdx === -1) {
-        el.attr('display', 'none');
-      } else {
-        el.attr('display', null)
-          .transition().duration(300)
-          .attr('y', padY + yIdx * (boxH + gapY) + boxH / 2 + 4);
-      }
-    });
-
-    // Close detail panel if pinned node became hidden
-    if (hierPinned && !isVisible(hierPinned)) {
-      closeHierDetail();
-    }
-  }
-
-  function hierSyncFromTabInner() {
-    if (!LAYERS) return;
-    hActiveLayers.clear();
-    activeLayers.forEach(function(name) { hActiveLayers.add(name); });
-    // Sync pill UI
-    hFilterRow.querySelectorAll('.layer-pill').forEach(function(p) {
-      var ln = p.dataset.layer;
-      if (ln === 'all') {
-        p.classList.toggle('active', hActiveLayers.size === 0);
-      } else {
-        p.classList.toggle('active', hActiveLayers.has(ln));
-      }
-    });
-  }
-
-  if (LAYERS) {
-    // "All" button
-    const allPill=document.createElement('div');
-    allPill.className='layer-pill active';
-    allPill.style.fontWeight='400';
-    allPill.textContent='All';
-    allPill.dataset.layer='all';
-    allPill.onclick=()=>{
-      hActiveLayers.clear();
-      hFilterRow.querySelectorAll('.layer-pill').forEach(p=>p.classList.remove('active'));
-      allPill.classList.add('active');
-      hierRelayoutInner();
-    };
-    hFilterRow.appendChild(allPill);
-
-    LAYERS.forEach(layer => {
-      const pill=document.createElement('div');
-      pill.className='layer-pill';
-      pill.dataset.layer=layer.name;
-      const count=DATA.nodes.filter(n=>n.layer===layer.name).length;
-      pill.innerHTML='<div class="lp-dot" style="background:'+layer.color+'"></div>'+layer.name+' <span class="lp-count">'+count+'</span>';
-      pill.onclick=(e)=>{
-        if (e.shiftKey) {
-          hActiveLayers.clear();
-          hActiveLayers.add(layer.name);
-        } else {
-          if (hActiveLayers.has(layer.name)) hActiveLayers.delete(layer.name);
-          else hActiveLayers.add(layer.name);
-        }
-        // Sync pill UI
-        hFilterRow.querySelectorAll('.layer-pill').forEach(function(p) {
-          var ln = p.dataset.layer;
-          if (ln === 'all') p.classList.toggle('active', hActiveLayers.size === 0);
-          else p.classList.toggle('active', hActiveLayers.has(ln));
-        });
-        hierRelayoutInner();
-      };
-      hFilterRow.appendChild(pill);
-    });
-  } else {
-    const hActiveDirs=new Set(DATA.dirs);
-    DATA.dirs.forEach(dir=>{
-      const pill=document.createElement('div');
-      pill.className='filter-pill active';
-      pill.innerHTML='<div class="pill-dot" style="background:'+dirColor(dir)+'"></div>'+(dir||'.')+' <span class="pill-count">'+(dirCounts[dir]||0)+'</span>';
-      pill.onclick=()=>{
-        if(hActiveDirs.has(dir)){hActiveDirs.delete(dir);pill.classList.remove('active');}
-        else{hActiveDirs.add(dir);pill.classList.add('active');}
-        nodeG.selectAll('.hier-node').attr('opacity',function(){const nId=this.__data_id;return hActiveDirs.has(nodeMap[nId]?.dir)?1:0.1;});
-      };
-      hFilterRow.appendChild(pill);
-    });
-  }
-
-  // Assign function pointers for cross-view sync
-  hierRelayout = hierRelayoutInner;
-  hierSyncFromTab = hierSyncFromTabInner;
-
-  hSvg.call(hZoom.transform,d3.zoomIdentity.translate(
-    Math.max(0,(W-totalW)/2),20
-  ).scale(Math.min(1,W/(totalW+40),H/(totalH+40))));
-
-  // If a layer tab was already selected, sync hierarchy on first build
-  if (activeLayerFilter) {
-    hierSyncFromTabInner(activeLayerFilter);
-    hierRelayoutInner();
-  }
-}
-
-// ═══════════════════════════════════════════════
-// DIFF VIEW
-// ═══════════════════════════════════════════════
-const DIFF = ${diffData};
-if (DIFF) {
-  document.getElementById('diff-tab').style.display = '';
-  const addedSet = new Set(DIFF.added||[]);
-  const removedSet = new Set(DIFF.removed||[]);
-  const modifiedSet = new Set(DIFF.modified||[]);
-  const affectedSet = new Set((DIFF.affectedDependents||[]).map(a=>a.file));
-
-  let diffBuilt = false;
-  function buildDiffView() {
-    const dSvg = d3.select('#diff-svg').attr('width', W).attr('height', H);
-    const dG = dSvg.append('g');
-    const dZoom = d3.zoom().scaleExtent([0.05,10]).on('zoom', e=>dG.attr('transform',e.transform));
-    dSvg.call(dZoom);
-
-    function diffColor(d) {
-      if (addedSet.has(d.id)) return 'var(--green)';
-      if (removedSet.has(d.id)) return 'var(--red)';
-      if (modifiedSet.has(d.id)) return 'var(--yellow)';
-      if (affectedSet.has(d.id)) return 'var(--accent)';
-      return '#30363d';
-    }
-
-    const dDefs = dSvg.append('defs');
-    dDefs.append('marker').attr('id','darrow').attr('viewBox','0 -4 8 8')
-      .attr('refX',8).attr('refY',0).attr('markerWidth',7).attr('markerHeight',7).attr('orient','auto')
-      .append('path').attr('d','M0,-3.5L8,0L0,3.5Z').attr('fill','#30363d');
-
-    const simNodes = DATA.nodes.map(d=>({...d, x:undefined, y:undefined, vx:undefined, vy:undefined}));
-    const simLinks = DATA.links.map(d=>({source:d.source.id??d.source,target:d.target.id??d.target,type:d.type}));
-
-    const dLink = dG.append('g').selectAll('line').data(simLinks).join('line')
-      .attr('stroke','#30363d').attr('stroke-width',1).attr('marker-end','url(#darrow)').attr('opacity',0.3);
-
-    const dNode = dG.append('g').selectAll('g').data(simNodes).join('g').attr('cursor','pointer');
-    dNode.append('circle')
-      .attr('r', d=>nodeRadius(d)*nodeScale)
-      .attr('fill', diffColor)
-      .attr('stroke', diffColor).attr('stroke-width', d=>(addedSet.has(d.id)||removedSet.has(d.id)||modifiedSet.has(d.id)||affectedSet.has(d.id))?3:1)
-      .attr('opacity', d=>(addedSet.has(d.id)||removedSet.has(d.id)||modifiedSet.has(d.id)||affectedSet.has(d.id))?1:0.2);
-    dNode.append('text')
-      .text(d=>fileName(d.id).replace(/\\.tsx?$/,''))
-      .attr('dx', d=>nodeRadius(d)*nodeScale+4).attr('dy',3.5).attr('font-size',11)
-      .attr('fill', d=>(addedSet.has(d.id)||removedSet.has(d.id)||modifiedSet.has(d.id)||affectedSet.has(d.id))?'var(--text)':'var(--text-muted)')
-      .attr('opacity', d=>(addedSet.has(d.id)||removedSet.has(d.id)||modifiedSet.has(d.id)||affectedSet.has(d.id))?1:0.2)
-      .attr('pointer-events','none');
-
-    const dSim = d3.forceSimulation(simNodes)
-      .force('link', d3.forceLink(simLinks).id(d=>d.id).distance(70).strength(0.25))
-      .force('charge', d3.forceManyBody().strength(-150).distanceMax(500))
-      .force('center', d3.forceCenter(0,0))
-      .force('collision', d3.forceCollide().radius(d=>nodeRadius(d)*nodeScale+4));
-
-    // Layer-aware physics for diff view (same pattern as graph view)
-    var dHullGroup = null;
-    if (LAYERS && LAYERS.length > 0) {
-      var dLayerCenters = {};
-      var dLayerCount = LAYERS.length;
-      var dBaseRadius = Math.max(60, Math.min(W, H) * 0.04 * Math.sqrt(dLayerCount));
-      LAYERS.forEach(function(l, idx) {
-        var angle = (2 * Math.PI * idx) / dLayerCount - Math.PI / 2;
-        dLayerCenters[l.name] = { x: Math.cos(angle) * dBaseRadius, y: Math.sin(angle) * dBaseRadius };
-      });
-      dSim.force('center', null);
-      dSim.force('layerX', d3.forceX(function(d) { return dLayerCenters[d.layer]?.x || 0; }).strength(function(d) { return d.layer ? 0.12 : 0.03; }));
-      dSim.force('layerY', d3.forceY(function(d) { return dLayerCenters[d.layer]?.y || 0; }).strength(function(d) { return d.layer ? 0.12 : 0.03; }));
-      dSim.force('link').strength(function(l) {
-        var sL = l.source.layer ?? l.source, tL = l.target.layer ?? l.target;
-        return sL === tL ? 0.4 : 0.1;
-      });
-      // Cluster force for diff view
-      dSim.force('cluster', (function() {
-        var ns;
-        function f(alpha) {
-          var centroids = {}, counts = {};
-          ns.forEach(function(n) {
-            if (!n.layer) return;
-            if (!centroids[n.layer]) { centroids[n.layer] = {x:0,y:0}; counts[n.layer] = 0; }
-            centroids[n.layer].x += n.x; centroids[n.layer].y += n.y; counts[n.layer]++;
-          });
-          Object.keys(centroids).forEach(function(k) { centroids[k].x /= counts[k]; centroids[k].y /= counts[k]; });
-          ns.forEach(function(n) {
-            if (!n.layer || !centroids[n.layer]) return;
-            n.vx += (centroids[n.layer].x - n.x) * alpha * 0.2;
-            n.vy += (centroids[n.layer].y - n.y) * alpha * 0.2;
-          });
-        }
-        f.initialize = function(n) { ns = n; };
-        return f;
-      })());
-
-      dHullGroup = dG.insert('g', ':first-child');
-    }
-
-    function isDiffNode(id) {
-      return addedSet.has(id) || removedSet.has(id) || modifiedSet.has(id) || affectedSet.has(id);
-    }
-
-    function updateDiffHulls() {
-      if (!dHullGroup) return;
-      dHullGroup.selectAll('*').remove();
-      LAYERS.forEach(function(layer) {
-        var layerNodes = simNodes.filter(function(n) { return n.layer === layer.name; });
-        if (layerNodes.length === 0) return;
-        var hasDiff = layerNodes.some(function(n) { return isDiffNode(n.id); });
-
-        var points = [];
-        layerNodes.forEach(function(n) {
-          if (n.x == null || n.y == null) return;
-          var r = nodeRadius(n) * nodeScale + 30;
-          for (var a = 0; a < Math.PI * 2; a += Math.PI / 4) {
-            points.push([n.x + Math.cos(a) * r, n.y + Math.sin(a) * r]);
-          }
-        });
-
-        var fillOp = hasDiff ? 0.15 : 0.06;
-        var strokeOp = hasDiff ? 0.6 : 0.2;
-        var sw = hasDiff ? 2.5 : 1;
-        if (points.length < 6) {
-          var cx = layerNodes.reduce(function(s, n) { return s + (n.x||0); }, 0) / layerNodes.length;
-          var cy = layerNodes.reduce(function(s, n) { return s + (n.y||0); }, 0) / layerNodes.length;
-          dHullGroup.append('circle').attr('cx', cx).attr('cy', cy).attr('r', 50)
-            .attr('fill', layer.color).attr('fill-opacity', fillOp)
-            .attr('stroke', layer.color).attr('stroke-opacity', strokeOp).attr('stroke-width', sw);
-        } else {
-          var hull = d3.polygonHull(points);
-          if (hull) {
-            dHullGroup.append('path')
-              .attr('d', 'M' + hull.map(function(p) { return p.join(','); }).join('L') + 'Z')
-              .attr('fill', layer.color).attr('fill-opacity', fillOp)
-              .attr('stroke', layer.color).attr('stroke-opacity', strokeOp).attr('stroke-width', sw)
-              .attr('stroke-dasharray', hasDiff ? null : '6,3');
-          }
-        }
-        // Layer name label
-        var lx = layerNodes.reduce(function(s, n) { return s + (n.x||0); }, 0) / layerNodes.length;
-        var ly = Math.min.apply(null, layerNodes.map(function(n) { return n.y||0; })) - 25;
-        dHullGroup.append('text')
-          .attr('x', lx).attr('y', ly).attr('text-anchor', 'middle')
-          .attr('fill', layer.color).attr('fill-opacity', hasDiff ? 0.9 : 0.4)
-          .attr('font-size', 12).attr('font-weight', 600).text(layer.name);
-      });
-    }
-
-    var dTickCount = 0;
-    dSim.on('tick', function() {
-        dLink.each(function(d) {
-          var dx=d.target.x-d.source.x, dy=d.target.y-d.source.y, dist=Math.sqrt(dx*dx+dy*dy)||1;
-          var rT=nodeRadius(d.target)*nodeScale, rS=nodeRadius(d.source)*nodeScale;
-          d3.select(this).attr('x1',d.source.x+(dx/dist)*rS).attr('y1',d.source.y+(dy/dist)*rS)
-            .attr('x2',d.target.x-(dx/dist)*rT).attr('y2',d.target.y-(dy/dist)*rT);
-        });
-        dNode.attr('transform', function(d) { return 'translate('+d.x+','+d.y+')'; });
-        if (++dTickCount % 3 === 0) updateDiffHulls();
-      });
-
-    dNode.on('mouseover',function(e,d) { showTooltip(e,d); }).on('mousemove',function(e) { positionTooltip(e); }).on('mouseout',function() { scheduleHideTooltip(); });
-
-    setTimeout(function() {
-      var b=dG.node().getBBox(); if(!b.width) return;
-      var s=Math.min(W/(b.width+80),H/(b.height+80))*0.9;
-      dSvg.call(dZoom.transform,d3.zoomIdentity.translate(W/2-(b.x+b.width/2)*s,H/2-(b.y+b.height/2)*s).scale(s));
-    },1500);
-  }
-
-  // Hook into tab switching
-  const origTabHandler = document.querySelectorAll('.tab');
-  origTabHandler.forEach(tab=>{
-    tab.addEventListener('click',()=>{
-      if(tab.dataset.view==='diff-view'&&!diffBuilt){buildDiffView();diffBuilt=true;}
-    });
-  });
-}
-
+${buildHierarchyJs()}
+${buildDiffJs(diffData)}
 // ═══════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════

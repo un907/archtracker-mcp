@@ -18,6 +18,10 @@ Available search modes:
 
 Choose the most appropriate mode based on the user's question and execute the search.
 
+Optional parameters:
+- `limit`: Max number of results to return (default: 10, max: 50)
+- `language`: Target language if auto-detection is insufficient (e.g. `python`, `rust`, `java`)
+
 Present results in the user's language with clear formatting:
 - File paths and dependency counts
 - Match reason

@@ -14,6 +14,8 @@ Perform a comprehensive architecture analysis of the project.
 1. Run `analyze_existing_architecture` on the target directory
    - For multi-layer projects: set `projectRoot` to the project root where `.archtracker/layers.json` exists, and leave `targetDir` as default `"src"` to trigger auto-detection
    - For single-directory projects: set `targetDir` to the source directory
+   - Optional `topN` parameter to control number of items per section (default: 10, max: 50)
+   - Optional `language` parameter to specify target language (e.g. `python`, `rust`) if auto-detection fails
 2. Present the full report covering:
    - Overview (file count, edge count, circular deps)
    - Critical components (most depended-on files)
