@@ -160,13 +160,11 @@ const DIFF = ${diffData};                    // ArchDiff or null (js-diff.ts内)
 - `extractImports` カスタムフックで複雑な構文に対応 (Rust grouped use, C# class references)
 - コメント除去 → import 抽出 → パス解決 → エッジ生成 のパイプライン
 
-### `--root` vs `--target` (重要: マルチレイヤーで最も踏む地雷)
-- `--target <dir>`: 解析対象ディレクトリ (デフォルト `src`)。**明示指定するとマルチレイヤー自動検出がスキップされる**
+### `--root` vs `--target`
+- `--target <dir>`: 解析対象ディレクトリ (デフォルト `src`)
 - `--root <dir>`: プロジェクトルート (`.archtracker/` の場所)。デフォルト `.`
-- マルチレイヤーを使うには: `--root /path/to/project` を指定し、`--target` は指定しない
-- CLI判定 (`resolveGraph`): `process.argv` に `-t` or `--target` があるか → あれば単一ディレクトリ
-- MCP判定 (`resolveGraphForMcp`): `targetDir === "src"` (デフォルト値) か → デフォルトなら layers.json を探す
-- よくある間違い: `archtracker serve --target /tmp/project` → マルチレイヤー無視。正しくは `--root /tmp/project`
+- **layers.json の検出は常に行われる**: `--target` を明示しても、`--root` の `.archtracker/layers.json` があればマルチレイヤー解析を実行
+- v0.6.0で `useMultiLayer` フラグを廃止。`resolveGraph()` が projectRoot の layers.json を常にチェックする設計に変更
 
 ### npm パッケージ構成
 - `package.json` の `"files": ["dist", "skills"]` — dist/ と skills/ のみ publish
@@ -247,10 +245,10 @@ node dist/bin.js serve --target src --port 3456
 
 - Web viewer の JS は template literal 内の文字列 (template.ts, js-hierarchy.ts, js-diff.ts)。TypeScript の型チェックは効かない。ブラウザコンソールで確認
 - `const` 宣言の Temporal Dead Zone (TDZ) に注意: template.ts 内の変数宣言順序が初期化順序と一致する必要がある。特に `activeLayers` は `nodeColor()` より前に宣言必須 (v0.5.0で踏んだバグ)
-- `resolveGraph()` は `src/analyzer/resolve.ts` に統一済み。CLI は `!isTargetExplicit()` で `useMultiLayer` を決定、MCP は `targetDir === "src"` で決定
+- `resolveGraph()` は `src/analyzer/resolve.ts` に統一済み。layers.json の存在を常にチェック (`useMultiLayer` フラグは廃止)
 - Snapshot schema version: v1.0 と v1.1 の両方を Zod union で受け入れ。新規保存は常に v1.1
 - Web viewer の force simulation: `DATA.links` 内のオブジェクトは d3 により source/target が node reference に変更される (破壊的)。Diff view は独立した `simLinks` / `simNodes` を使う必要がある
 - Diff view の `updateDiffHulls()` は tick ごとに呼ぶとフリーズする。5 tick に1回にスロットル (v0.6.0で改善)
 - Web viewer のデバッグ: `npm run build` → サーバー再起動 → ブラウザリロード。ホットリロードなし
 - layers.json のフィールド名は `targetDir` であり `path` ではない。`version: "1.0"` も必須。間違えると silent fail で LAYERS=null になる
-- `--target` を明示指定した時点で `useMultiLayer=false`。`--root` だけ指定して `--target` は省略するのが正しいパターン。これは設計上の制約であり **バグではないが地雷** — 将来的に `--root` 指定時は `--target` 明示でも layers.json を探すべきかもしれない (v0.7.0検討)
+- v0.6.0以前: `--target` 明示で `useMultiLayer=false` になる地雷があった。v0.6.0で修正済み
