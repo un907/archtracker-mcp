@@ -6,6 +6,7 @@ import { buildStyles } from "./styles.js";
 import { buildViewerHtml } from "./viewer-html.js";
 import { buildHierarchyJs } from "./js-hierarchy.js";
 import { buildDiffJs } from "./js-diff.js";
+import { ESC_FUNCTION_JS } from "../utils/html-escape.js";
 
 export interface ViewerOptions {
   locale?: Locale;
@@ -87,6 +88,7 @@ const I18N = {
     'tab.diff': 'Diff',
     'diff.addedLabel': 'Added', 'diff.removedLabel': 'Removed', 'diff.modifiedLabel': 'Modified', 'diff.affectedLabel': 'Affected',
     'diff.showAll': 'Show all', 'diff.focusChanges': 'Focus changes', 'diff.noImpact': 'No downstream impact',
+    'diff.affectedByChange': 'Affected by this change',
   },
   ja: {
     'tab.graph': 'グラフ', 'tab.hierarchy': '階層図',
@@ -106,6 +108,7 @@ const I18N = {
     'tab.diff': '差分',
     'diff.addedLabel': '追加', 'diff.removedLabel': '削除', 'diff.modifiedLabel': '変更', 'diff.affectedLabel': '影響',
     'diff.showAll': '全表示', 'diff.focusChanges': '変更のみ表示', 'diff.noImpact': '下流への影響なし',
+    'diff.affectedByChange': 'この変更の影響範囲',
   }
 };
 let currentLang = '${locale}';
@@ -123,7 +126,7 @@ function applyI18n() {
 }
 window.setLang = (lang) => { currentLang = lang; applyI18n(); saveSettings(); };
 function i(key) { return (I18N[currentLang] || I18N.en)[key] || key; }
-function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+${ESC_FUNCTION_JS}
 
 // ═══════════════════════════════════════════════
 // SETTINGS (persisted to localStorage)
@@ -174,7 +177,11 @@ window.setGravity = (v) => {
   gravityStrength = +v;
   document.getElementById('gravity-val').textContent = v;
   if (typeof simulation !== 'undefined') {
-    simulation.force('charge', d3.forceManyBody().strength(-gravityStrength).distanceMax(500));
+    if (typeof updateLayerPhysics === 'function') {
+      updateLayerPhysics();
+    } else {
+      simulation.force('charge', d3.forceManyBody().strength(-gravityStrength).distanceMax(500));
+    }
     simulation.alpha(0.5).restart();
   }
   saveSettings();
@@ -183,8 +190,9 @@ let layerGravity = 12;
 window.setLayerGravity = (v) => {
   layerGravity = +v;
   document.getElementById('layer-gravity-val').textContent = v;
-  if (typeof simulation !== 'undefined' && typeof applyLayerFilter === 'function') {
-    applyLayerFilter();
+  if (typeof simulation !== 'undefined' && typeof updateLayerPhysics === 'function') {
+    updateLayerPhysics();
+    simulation.alpha(0.5).restart();
   }
   saveSettings();
 };
@@ -310,8 +318,8 @@ function showTooltip(e, d) {
   document.getElementById('tt-name').textContent = d.id;
   document.getElementById('tt-dep-count').textContent = d.deps;
   document.getElementById('tt-dpt-count').textContent = d.dependents;
-  const out = (d.dependencies||[]).map(x => '<div class="tt-out">→ '+x+'</div>');
-  const inc = (d.dependentsList||[]).map(x => '<div class="tt-in">← '+x+'</div>');
+  const out = (d.dependencies||[]).map(x => '<div class="tt-out">→ '+esc(x)+'</div>');
+  const inc = (d.dependentsList||[]).map(x => '<div class="tt-in">← '+esc(x)+'</div>');
   document.getElementById('tt-details').innerHTML = [...out, ...inc].join('');
   tooltip.style.display = 'block';
   positionTooltip(e);
@@ -462,6 +470,7 @@ const activeDirs = new Set(DATA.dirs);
 const dirCounts = {};
 DATA.nodes.forEach(n => dirCounts[n.dir] = (dirCounts[n.dir] || 0) + 1);
 var applyLayerFilter = null; // hoisted for dir-filter integration
+var updateLayerPhysics = null; // hoisted — updates charge/layer forces without visibility changes
 
 if (LAYERS && LAYERS.length > 0) {
   // ─── Water droplet physics: intra-layer cohesion + inter-layer separation ───
@@ -635,7 +644,7 @@ if (LAYERS && LAYERS.length > 0) {
   LAYERS.forEach(layer => {
     const item = document.createElement('div');
     item.className = 'legend-item';
-    item.innerHTML = '<div class="legend-dot" style="background:' + layer.color + '"></div> ' + layer.name;
+    item.innerHTML = '<div class="legend-dot" style="background:' + esc(layer.color) + '"></div> ' + esc(layer.name);
     layerLegend.appendChild(item);
   });
   // Cross-layer edge legend
@@ -667,7 +676,7 @@ if (LAYERS && LAYERS.length > 0) {
     const tab = document.createElement('div');
     tab.className = 'layer-tab';
     tab.dataset.layer = layer.name;
-    tab.innerHTML = '<div class="lt-dot" style="background:' + layer.color + '"></div>' + layer.name;
+    tab.innerHTML = '<div class="lt-dot" style="background:' + esc(layer.color) + '"></div>' + esc(layer.name);
     tab.onclick = (e) => {
       if (e.shiftKey) {
         // Shift+click: solo this layer
@@ -745,7 +754,16 @@ if (LAYERS && LAYERS.length > 0) {
     const visCirc = DATA.circularFiles.filter(f => visibleIds.has(f));
     document.getElementById('s-circular').textContent = visCirc.length;
     updateHulls();
-    // Adjust physics: single-layer = centered, multi-select = compact, all = full spread
+    // Delegate physics update and zoom to fit
+    updateLayerPhysics();
+    simulation.alpha(0.6).restart();
+    setTimeout(() => zoomFit(), 600);
+  }
+
+  // Separated physics update: handles charge/layer forces based on filter state.
+  // Called by applyLayerFilter (with zoomFit), setGravity, setLayerGravity (without zoomFit).
+  updateLayerPhysics = function() {
+    const isSingleLayer = activeLayers.size === 1;
     const lStrength = layerGravity / 100;
     if (isSingleLayer) {
       simulation.force('charge', d3.forceManyBody().strength(-gravityStrength * 3).distanceMax(800));
@@ -757,9 +775,6 @@ if (LAYERS && LAYERS.length > 0) {
       simulation.force('layerX', d3.forceX(d => centers[d.layer]?.x || 0).strength(d => d.layer ? lStrength : 0.03));
       simulation.force('layerY', d3.forceY(d => centers[d.layer]?.y || 0).strength(d => d.layer ? lStrength : 0.03));
     }
-    simulation.alpha(0.6).restart();
-    // Zoom to fit visible nodes after simulation settles
-    setTimeout(() => zoomFit(), 600);
   }
 
   // ─── Layer filter pills (new grouped bar) ────────────────────
@@ -795,7 +810,7 @@ if (LAYERS && LAYERS.length > 0) {
     const pill = document.createElement('div');
     pill.className = 'layer-pill';
     pill.dataset.layer = layer.name;
-    pill.innerHTML = '<div class="lp-dot" style="background:' + layer.color + '"></div>' + layer.name + ' <span class="lp-count">' + layerNodes.length + '</span>';
+    pill.innerHTML = '<div class="lp-dot" style="background:' + esc(layer.color) + '"></div>' + esc(layer.name) + ' <span class="lp-count">' + layerNodes.length + '</span>';
     pill.onclick = () => {
       if (activeLayers.has(layer.name)) activeLayers.delete(layer.name);
       else activeLayers.add(layer.name);
@@ -821,7 +836,7 @@ if (LAYERS && LAYERS.length > 0) {
       group.className = 'dir-group';
       const label = document.createElement('div');
       label.className = 'dir-group-label';
-      label.innerHTML = '<div class="dg-dot" style="background:' + layer.color + '"></div>' + layer.name;
+      label.innerHTML = '<div class="dg-dot" style="background:' + esc(layer.color) + '"></div>' + esc(layer.name);
       group.appendChild(label);
       const pillsWrap = document.createElement('div');
       pillsWrap.className = 'dir-group-pills';
@@ -829,7 +844,7 @@ if (LAYERS && LAYERS.length > 0) {
         const dp = document.createElement('div');
         dp.className = 'filter-pill active';
         const shortDir = dir.includes('/') ? dir.substring(dir.indexOf('/') + 1) : dir;
-        dp.innerHTML = '<div class="pill-dot" style="background:' + dirColor(dir) + '"></div>' + (shortDir || '.') + ' <span class="pill-count">' + (dirCounts[dir] || 0) + '</span>';
+        dp.innerHTML = '<div class="pill-dot" style="background:' + dirColor(dir) + '"></div>' + esc(shortDir || '.') + ' <span class="pill-count">' + (dirCounts[dir] || 0) + '</span>';
         dp.onclick = () => {
           if (activeDirs.has(dir)) { activeDirs.delete(dir); dp.classList.remove('active'); }
           else { activeDirs.add(dir); dp.classList.add('active'); }
@@ -903,12 +918,15 @@ svg.on('click', () => {
 function showDetail(d) {
   const p=document.getElementById('detail');
   document.getElementById('d-name').textContent=d.id;
-  document.getElementById('d-meta').innerHTML=i('detail.dir')+': '+d.dir+'<br>'+i('detail.dependencies')+': '+d.deps+' · '+i('detail.dependents')+': '+d.dependents;
+  document.getElementById('d-meta').innerHTML=i('detail.dir')+': '+esc(d.dir)+'<br>'+i('detail.dependencies')+': '+d.deps+' \\u00b7 '+i('detail.dependents')+': '+d.dependents;
   const deptL=document.getElementById('d-dependents'), depsL=document.getElementById('d-deps');
-  deptL.innerHTML=(d.dependentsList||[]).map(x=>'<li onclick="focusNode(\\''+x+'\\')">← '+x+'</li>').join('')||'<li style="color:var(--text-muted)">'+i('detail.none')+'</li>';
-  depsL.innerHTML=(d.dependencies||[]).map(x=>'<li onclick="focusNode(\\''+x+'\\')">→ '+x+'</li>').join('')||'<li style="color:var(--text-muted)">'+i('detail.none')+'</li>';
+  deptL.innerHTML=(d.dependentsList||[]).map(x=>'<li data-focus="'+esc(x)+'">\\u2190 '+esc(x)+'</li>').join('')||'<li style="color:var(--text-muted)">'+i('detail.none')+'</li>';
+  depsL.innerHTML=(d.dependencies||[]).map(x=>'<li data-focus="'+esc(x)+'">\\u2192 '+esc(x)+'</li>').join('')||'<li style="color:var(--text-muted)">'+i('detail.none')+'</li>';
   p.classList.add('open');
 }
+// Event delegation for detail panel list items (avoids inline onclick)
+document.getElementById('d-dependents').addEventListener('click', function(e) { var li=e.target.closest('li[data-focus]'); if(li) focusNode(li.dataset.focus); });
+document.getElementById('d-deps').addEventListener('click', function(e) { var li=e.target.closest('li[data-focus]'); if(li) focusNode(li.dataset.focus); });
 window.closeDetail=()=>document.getElementById('detail').classList.remove('open');
 window.focusNode=(id)=>{
   const n=DATA.nodes.find(x=>x.id===id); if(!n)return; showDetail(n);
@@ -941,7 +959,7 @@ if (!LAYERS) {
   DATA.dirs.forEach(dir=>{
     const pill=document.createElement('div');
     pill.className='filter-pill active';
-    pill.innerHTML='<div class="pill-dot" style="background:'+dirColor(dir)+'"></div>'+(dir||'.')+' <span class="pill-count">'+dirCounts[dir]+'</span>';
+    pill.innerHTML='<div class="pill-dot" style="background:'+dirColor(dir)+'"></div>'+esc(dir||'.')+' <span class="pill-count">'+dirCounts[dir]+'</span>';
     pill.onclick=()=>{
       if(activeDirs.has(dir)){activeDirs.delete(dir);pill.classList.remove('active');}
       else{activeDirs.add(dir);pill.classList.add('active');}

@@ -241,6 +241,11 @@ node dist/bin.js serve --target src --port 3456
 
 `generate_map` と `analyze_existing_architecture` の混同に注意。前者は JSON、後者は人間向け。
 
+## Project Conventions
+
+- **不要コードのアーカイブ**: 使用しなくなったテストコードやコンポーネントは明示的にアーカイブディレクトリにまとめること。暗黙的に放置しない
+- **テストフィクスチャの管理**: テストフィクスチャは保持するが、`.gitignore` や `tsconfig.json` の `exclude` で適切に管理する。コミットサイズ・型チェック対象に注意
+
 ## Gotchas
 
 - Web viewer の JS は template literal 内の文字列 (template.ts, js-hierarchy.ts, js-diff.ts)。TypeScript の型チェックは効かない。ブラウザコンソールで確認

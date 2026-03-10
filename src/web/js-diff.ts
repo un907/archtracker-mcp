@@ -340,7 +340,10 @@ if (DIFF) {
     // Apply initial filter (in case focus was toggled before build)
     applyDiffFilter();
 
+    var dAutoFitDone = false;
     dSim.on('end', function() {
+      if (dAutoFitDone) return;
+      dAutoFitDone = true;
       var b=dG.node().getBBox(); if(!b.width) return;
       var s=Math.min(W/(b.width+80),H/(b.height+80))*0.9;
       dSvg.call(dZoom.transform,d3.zoomIdentity.translate(W/2-(b.x+b.width/2)*s,H/2-(b.y+b.height/2)*s).scale(s));

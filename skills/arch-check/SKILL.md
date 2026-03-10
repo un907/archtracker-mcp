@@ -13,6 +13,7 @@ Run an architecture diff check for the current project.
 1. Run `check_architecture_diff`
    - For multi-layer projects: set `projectRoot` to the project root where `.archtracker/layers.json` exists
    - Leave `targetDir` as default `"src"` to trigger multi-layer auto-detection
+   - Optional `language` parameter to specify target language (e.g. `python`, `rust`) if auto-detection fails
 2. Compare current code against the saved snapshot
 3. Report any files that have changed and their affected dependents
 

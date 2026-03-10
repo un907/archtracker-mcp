@@ -81,17 +81,11 @@ server.tool(
       .array(z.string())
       .optional()
       .describe("Array of regex patterns to exclude (e.g. ['test', 'mock'])"),
-    maxDepth: z
-      .number()
-      .int()
-      .min(0)
-      .optional()
-      .describe("Max analysis depth (0 = unlimited)"),
     language: languageEnum
       .optional()
       .describe("Target language (auto-detected if omitted)"),
   },
-  async ({ targetDir, projectRoot, exclude, maxDepth, language }) => {
+  async ({ targetDir, projectRoot, exclude, language }) => {
     try {
       validatePath(targetDir);
       validatePath(projectRoot);
@@ -127,7 +121,7 @@ server.tool(
 
 server.tool(
   "analyze_existing_architecture",
-  `Comprehensive architecture analysis for existing projects. Shows critical components, circular dependencies, orphan files, coupling hotspots, and directory breakdown. Supports ${LANGUAGE_IDS.length} languages.`,
+  `Comprehensive architecture analysis for existing projects. Shows critical components, circular dependencies, orphan files, coupling hotspots, and directory breakdown. Supports ${languageList}.`,
   {
     targetDir: z
       .string()
@@ -151,7 +145,7 @@ server.tool(
     projectRoot: z
       .string()
       .default(".")
-      .describe("Project root (needed only when saveSnapshot is true)"),
+      .describe("Project root (where .archtracker/ is located)"),
     language: languageEnum
       .optional()
       .describe("Target language (auto-detected if omitted)"),
@@ -159,6 +153,7 @@ server.tool(
   async ({ targetDir, exclude, topN, saveSnapshot: doSave, projectRoot, language }) => {
     try {
       validatePath(targetDir);
+      validatePath(projectRoot);
       const { graph, multiLayer, layerMetadata, crossLayerEdges } = await resolveGraphMcp({
         targetDir, projectRoot, exclude, language,
       });
@@ -180,7 +175,6 @@ server.tool(
       }
 
       if (doSave) {
-        validatePath(projectRoot);
         await saveSnapshot(projectRoot, graph, multiLayer);
         content.push({ type: "text" as const, text: t("analyze.snapshotSaved") });
       }
@@ -320,6 +314,8 @@ server.tool(
   },
   async ({ targetDir, projectRoot, language }) => {
     try {
+      validatePath(targetDir);
+      validatePath(projectRoot);
       let snapshot = await loadSnapshot(projectRoot);
 
       // Auto-generate if no snapshot exists

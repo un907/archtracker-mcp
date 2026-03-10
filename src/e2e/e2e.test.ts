@@ -189,4 +189,15 @@ describe("buildGraphPage", () => {
     const html = buildGraphPage(graph, { locale: "en" });
     expect(html).toContain("sample-project");
   });
+
+  it("includes esc() XSS escape function with all 5 character replacements", () => {
+    const html = buildGraphPage(graph, { locale: "en" });
+    expect(html).toContain("function esc(s)");
+    // Must handle all 5 dangerous HTML characters
+    expect(html).toContain("&amp;");
+    expect(html).toContain("&lt;");
+    expect(html).toContain("&gt;");
+    expect(html).toContain("&quot;");
+    expect(html).toContain("&#39;");
+  });
 });

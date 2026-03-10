@@ -13,6 +13,7 @@ Save the current project architecture as the baseline snapshot.
 1. Run `save_architecture_snapshot`
    - For multi-layer projects: set `projectRoot` to the project root where `.archtracker/layers.json` exists
    - Leave `targetDir` as default `"src"` to trigger multi-layer auto-detection
+   - Optional `language` parameter to specify target language (e.g. `python`, `rust`) if auto-detection fails
 2. Save it as `.archtracker/snapshot.json`
 3. Confirm the save with a summary
 

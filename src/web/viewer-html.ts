@@ -149,7 +149,7 @@ export function buildViewerHtml(): string {
       <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div> <span data-i18n="diff.modifiedLabel">Modified</span> <b id="diff-modified-count" style="margin-left:auto">0</b></div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div> <span data-i18n="diff.affectedLabel">Affected</span> <b id="diff-affected-count" style="margin-left:auto">0</b></div>
       <div style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
-        <button id="diff-focus-btn" onclick="toggleDiffFocus()" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;color:var(--text-dim);font-size:11px;width:100%;transition:all 0.15s;">Focus changes</button>
+        <button id="diff-focus-btn" onclick="toggleDiffFocus()" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;color:var(--text-dim);font-size:11px;width:100%;transition:all 0.15s;" data-i18n="diff.focusChanges">Focus changes</button>
       </div>
     </div>
   </div>
@@ -158,7 +158,7 @@ export function buildViewerHtml(): string {
     <div class="detail-name" id="dd-name"></div>
     <div id="dd-status" style="margin:6px 0;font-size:12px;font-weight:600;"></div>
     <div class="detail-meta" id="dd-meta"></div>
-    <div class="detail-section"><h4>Affected by this change</h4><ul class="detail-list" id="dd-affected"></ul></div>
+    <div class="detail-section"><h4 data-i18n="diff.affectedByChange">Affected by this change</h4><ul class="detail-list" id="dd-affected"></ul></div>
     <div class="detail-section"><h4 data-i18n="detail.imports">Imports</h4><ul class="detail-list" id="dd-deps"></ul></div>
   </div>
   <div id="help-bar" style="position:absolute" data-i18n="help.diff">Green=added \u00B7 Red=removed \u00B7 Yellow=modified \u00B7 Blue=affected \u00B7 Click: impact chain</div>

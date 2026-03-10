@@ -4,7 +4,7 @@
  *
  * Dependencies (defined in core JS before this runs):
  *   DATA, LAYERS, W, H, circularSet, nodeColor, nodeRadius, fileName,
- *   dirColor, dirCounts, activeLayers, activeLayerFilter,
+ *   dirColor, dirCounts, activeLayers,
  *   showTooltip, positionTooltip, scheduleHideTooltip, tooltip, tooltipLocked,
  *   hierRelayout, hierSyncFromTab (function pointers set by this module)
  */
@@ -273,7 +273,7 @@ function buildHierarchy(){
       pill.className='layer-pill';
       pill.dataset.layer=layer.name;
       const count=DATA.nodes.filter(n=>n.layer===layer.name).length;
-      pill.innerHTML='<div class="lp-dot" style="background:'+layer.color+'"></div>'+layer.name+' <span class="lp-count">'+count+'</span>';
+      pill.innerHTML='<div class="lp-dot" style="background:'+esc(layer.color)+'"></div>'+esc(layer.name)+' <span class="lp-count">'+count+'</span>';
       pill.onclick=(e)=>{
         if (e.shiftKey) {
           hActiveLayers.clear();
@@ -297,7 +297,7 @@ function buildHierarchy(){
     DATA.dirs.forEach(dir=>{
       const pill=document.createElement('div');
       pill.className='filter-pill active';
-      pill.innerHTML='<div class="pill-dot" style="background:'+dirColor(dir)+'"></div>'+(dir||'.')+' <span class="pill-count">'+(dirCounts[dir]||0)+'</span>';
+      pill.innerHTML='<div class="pill-dot" style="background:'+dirColor(dir)+'"></div>'+esc(dir||'.')+' <span class="pill-count">'+(dirCounts[dir]||0)+'</span>';
       pill.onclick=()=>{
         if(hActiveDirs.has(dir)){hActiveDirs.delete(dir);pill.classList.remove('active');}
         else{hActiveDirs.add(dir);pill.classList.add('active');}
