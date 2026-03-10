@@ -20,12 +20,7 @@ import type { LanguageId } from "../analyzer/engines/types.js";
 
 const VALID_LANGUAGES = LANGUAGE_IDS as readonly string[];
 
-/** Check if --target was explicitly provided on the CLI */
-function isTargetExplicit(): boolean {
-  return process.argv.some((a) => a === "-t" || a === "--target");
-}
-
-/** CLI wrapper: resolveGraph with --target explicit check */
+/** CLI wrapper: resolveGraph always checks layers.json in projectRoot */
 async function resolveGraphCli(opts: {
   target: string;
   root: string;
@@ -35,7 +30,6 @@ async function resolveGraphCli(opts: {
   return resolveGraph({
     targetDir: opts.target,
     projectRoot: opts.root,
-    useMultiLayer: !isTargetExplicit(),
     exclude: opts.exclude,
     language: opts.language,
   });

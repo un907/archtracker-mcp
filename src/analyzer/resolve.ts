@@ -17,42 +17,36 @@ export interface ResolvedGraph {
 }
 
 /**
- * Resolve a dependency graph. When `useMultiLayer` is true and layers.json
- * exists, performs multi-layer analysis. Otherwise falls back to single-dir.
- *
- * @param useMultiLayer - Whether to attempt multi-layer detection.
- *   CLI: true when --target is NOT explicitly provided (auto-detect)
- *   MCP: true when targetDir === "src" (the default value)
+ * Resolve a dependency graph. Always checks for layers.json in projectRoot.
+ * If layers.json exists, performs multi-layer analysis regardless of how
+ * targetDir was specified. Otherwise falls back to single-dir analysis.
  */
 export async function resolveGraph(opts: {
   targetDir: string;
   projectRoot: string;
-  useMultiLayer: boolean;
   exclude?: string[];
   language?: LanguageId;
 }): Promise<ResolvedGraph> {
-  if (opts.useMultiLayer) {
-    const layerConfig = await loadLayerConfig(opts.projectRoot);
-    if (layerConfig) {
-      const multi = await analyzeMultiLayer(opts.projectRoot, layerConfig.layers);
-      const autoConnections = detectCrossLayerConnections(multi.layers, layerConfig.layers);
-      const manualConnections = layerConfig.connections ?? [];
-      const manualKeys = new Set(manualConnections.map(
-        (c) => `${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`,
-      ));
-      const merged = [
-        ...manualConnections,
-        ...autoConnections.filter(
-          (c) => !manualKeys.has(`${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`),
-        ),
-      ];
-      return {
-        graph: multi.merged,
-        multiLayer: multi,
-        layerMetadata: multi.layerMetadata,
-        crossLayerEdges: merged,
-      };
-    }
+  const layerConfig = await loadLayerConfig(opts.projectRoot);
+  if (layerConfig) {
+    const multi = await analyzeMultiLayer(opts.projectRoot, layerConfig.layers);
+    const autoConnections = detectCrossLayerConnections(multi.layers, layerConfig.layers);
+    const manualConnections = layerConfig.connections ?? [];
+    const manualKeys = new Set(manualConnections.map(
+      (c) => `${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`,
+    ));
+    const merged = [
+      ...manualConnections,
+      ...autoConnections.filter(
+        (c) => !manualKeys.has(`${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`),
+      ),
+    ];
+    return {
+      graph: multi.merged,
+      multiLayer: multi,
+      layerMetadata: multi.layerMetadata,
+      crossLayerEdges: merged,
+    };
   }
 
   const graph = await analyzeProject(opts.targetDir, {

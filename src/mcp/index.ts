@@ -41,7 +41,7 @@ const languageList = LANGUAGE_IDS
   .map((id) => LANG_DISPLAY[id] ?? id.charAt(0).toUpperCase() + id.slice(1))
   .join(", ");
 
-/** MCP wrapper: resolveGraph with targetDir === "src" as multi-layer trigger */
+/** MCP wrapper: resolveGraph always checks layers.json in projectRoot */
 async function resolveGraphMcp(opts: {
   targetDir: string;
   projectRoot: string;
@@ -51,7 +51,6 @@ async function resolveGraphMcp(opts: {
   return resolveGraph({
     targetDir: opts.targetDir,
     projectRoot: opts.projectRoot,
-    useMultiLayer: opts.targetDir === "src",
     exclude: opts.exclude,
     language: opts.language,
   });
