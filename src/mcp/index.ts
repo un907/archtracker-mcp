@@ -2,26 +2,23 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import {
-  analyzeProject,
-  analyzeMultiLayer,
-  detectCrossLayerConnections,
   AnalyzerError,
   searchByPath,
   findAffectedFiles,
   findCriticalFiles,
   findOrphanFiles,
   formatAnalysisReport,
+  resolveGraph,
 } from "../analyzer/index.js";
 import {
   saveSnapshot,
   loadSnapshot,
   computeDiff,
   formatDiffReport,
-  loadLayerConfig,
   StorageError,
 } from "../storage/index.js";
-import type { ArchContext, DependencyGraph, MultiLayerGraph, LayerMetadata } from "../types/schema.js";
-import type { CrossLayerConnection } from "../types/layers.js";
+import type { ArchContext, LayerMetadata } from "../types/schema.js";
+import type { ResolvedGraph } from "../analyzer/index.js";
 import { validatePath, PathTraversalError } from "../utils/path-guard.js";
 import { t } from "../i18n/index.js";
 import { VERSION } from "../utils/version.js";
@@ -44,51 +41,20 @@ const languageList = LANGUAGE_IDS
   .map((id) => LANG_DISPLAY[id] ?? id.charAt(0).toUpperCase() + id.slice(1))
   .join(", ");
 
-// ─── Multi-layer auto-detection helper ───────────────────────────
-
-interface ResolvedGraph {
-  graph: DependencyGraph;
-  multiLayer?: MultiLayerGraph;
-  layerMetadata?: LayerMetadata[];
-  crossEdges?: CrossLayerConnection[];
-}
-
-/**
- * If layers.json exists and targetDir is the default "src", use multi-layer analysis.
- * Otherwise fall back to single-directory analysis.
- */
-async function resolveGraphForMcp(opts: {
+/** MCP wrapper: resolveGraph with targetDir === "src" as multi-layer trigger */
+async function resolveGraphMcp(opts: {
   targetDir: string;
   projectRoot: string;
   exclude?: string[];
   language?: LanguageId;
 }): Promise<ResolvedGraph> {
-  // Only auto-detect when targetDir is the default "src"
-  if (opts.targetDir === "src") {
-    const layerConfig = await loadLayerConfig(opts.projectRoot);
-    if (layerConfig) {
-      const multi = await analyzeMultiLayer(opts.projectRoot, layerConfig.layers);
-      // Auto-detect cross-layer connections
-      const autoConnections = detectCrossLayerConnections(multi.layers, layerConfig.layers);
-      const manualConnections = layerConfig.connections ?? [];
-      const manualKeys = new Set(manualConnections.map(
-        (c) => `${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`,
-      ));
-      const allConnections = [
-        ...manualConnections,
-        ...autoConnections.filter(
-          (c) => !manualKeys.has(`${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`),
-        ),
-      ];
-      return { graph: multi.merged, multiLayer: multi, layerMetadata: multi.layerMetadata, crossEdges: allConnections };
-    }
-  }
-
-  const graph = await analyzeProject(opts.targetDir, {
+  return resolveGraph({
+    targetDir: opts.targetDir,
+    projectRoot: opts.projectRoot,
+    useMultiLayer: opts.targetDir === "src",
     exclude: opts.exclude,
     language: opts.language,
   });
-  return { graph };
 }
 
 /** Format layer summary for MCP text responses */
@@ -130,7 +96,7 @@ server.tool(
     try {
       validatePath(targetDir);
       validatePath(projectRoot);
-      const { graph, layerMetadata, crossEdges } = await resolveGraphForMcp({
+      const { graph, layerMetadata, crossLayerEdges } = await resolveGraphMcp({
         targetDir, projectRoot, exclude, language,
       });
 
@@ -140,11 +106,11 @@ server.tool(
           ? t("mcp.circularFound", { count: graph.circularDependencies.length })
           : t("mcp.circularNone"),
         ...(layerMetadata ? ["\nLayers:\n" + formatLayerSummary(layerMetadata)] : []),
-        ...(crossEdges?.length ? [`\nCross-layer connections: ${crossEdges.length}`] : []),
+        ...(crossLayerEdges?.length ? [`\nCross-layer connections: ${crossLayerEdges.length}`] : []),
       ].join("\n");
 
       const result: Record<string, unknown> = { ...graph };
-      if (crossEdges?.length) result.crossLayerConnections = crossEdges;
+      if (crossLayerEdges?.length) result.crossLayerConnections = crossLayerEdges;
 
       return {
         content: [
@@ -194,7 +160,7 @@ server.tool(
   async ({ targetDir, exclude, topN, saveSnapshot: doSave, projectRoot, language }) => {
     try {
       validatePath(targetDir);
-      const { graph, multiLayer, layerMetadata, crossEdges } = await resolveGraphForMcp({
+      const { graph, multiLayer, layerMetadata, crossLayerEdges } = await resolveGraphMcp({
         targetDir, projectRoot, exclude, language,
       });
       const report = formatAnalysisReport(graph, { topN: topN ?? 10 });
@@ -207,11 +173,11 @@ server.tool(
         content.push({ type: "text" as const, text: "\nLayers:\n" + formatLayerSummary(layerMetadata) });
       }
 
-      if (crossEdges?.length) {
-        const crossSummary = crossEdges.map((c) =>
+      if (crossLayerEdges?.length) {
+        const crossSummary = crossLayerEdges.map((c) =>
           `  ${c.fromLayer}/${c.fromFile} → ${c.toLayer}/${c.toFile} [${c.type}] ${c.label ?? ""}`
         ).join("\n");
-        content.push({ type: "text" as const, text: `\nCross-layer connections (${crossEdges.length}):\n${crossSummary}` });
+        content.push({ type: "text" as const, text: `\nCross-layer connections (${crossLayerEdges.length}):\n${crossSummary}` });
       }
 
       if (doSave) {
@@ -249,7 +215,7 @@ server.tool(
     try {
       validatePath(targetDir);
       validatePath(projectRoot);
-      const { graph, multiLayer, layerMetadata } = await resolveGraphForMcp({
+      const { graph, multiLayer, layerMetadata } = await resolveGraphMcp({
         targetDir, projectRoot, language,
       });
       const snapshot = await saveSnapshot(projectRoot, graph, multiLayer);
@@ -304,7 +270,7 @@ server.tool(
 
       if (!existingSnapshot) {
         // Auto-generate initial snapshot
-        const { graph, multiLayer } = await resolveGraphForMcp({
+        const { graph, multiLayer } = await resolveGraphMcp({
           targetDir, projectRoot, language,
         });
         await saveSnapshot(projectRoot, graph, multiLayer);
@@ -322,7 +288,7 @@ server.tool(
         };
       }
 
-      const { graph: currentGraph } = await resolveGraphForMcp({
+      const { graph: currentGraph } = await resolveGraphMcp({
         targetDir, projectRoot, language,
       });
       const diff = computeDiff(existingSnapshot.graph, currentGraph);
@@ -359,7 +325,7 @@ server.tool(
 
       // Auto-generate if no snapshot exists
       if (!snapshot) {
-        const { graph, multiLayer } = await resolveGraphForMcp({
+        const { graph, multiLayer } = await resolveGraphMcp({
           targetDir, projectRoot, language,
         });
         snapshot = await saveSnapshot(projectRoot, graph, multiLayer);
@@ -459,7 +425,7 @@ server.tool(
       // Use existing snapshot or generate fresh
       let snapshot = await loadSnapshot(projectRoot);
       if (!snapshot) {
-        const { graph, multiLayer } = await resolveGraphForMcp({
+        const { graph, multiLayer } = await resolveGraphMcp({
           targetDir, projectRoot, language,
         });
         snapshot = await saveSnapshot(projectRoot, graph, multiLayer);

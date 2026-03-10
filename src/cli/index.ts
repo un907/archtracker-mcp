@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { watch } from "node:fs";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { analyzeProject, analyzeMultiLayer, detectCrossLayerConnections, AnalyzerError, formatAnalysisReport } from "../analyzer/index.js";
+import { AnalyzerError, formatAnalysisReport, resolveGraph } from "../analyzer/index.js";
 import {
   saveSnapshot,
   loadSnapshot,
@@ -17,55 +17,28 @@ import type { Locale } from "../i18n/index.js";
 import { VERSION } from "../utils/version.js";
 import { LANGUAGE_IDS } from "../analyzer/engines/types.js";
 import type { LanguageId } from "../analyzer/engines/types.js";
-import type { DependencyGraph, MultiLayerGraph, LayerMetadata } from "../types/schema.js";
-import type { CrossLayerConnection } from "../types/layers.js";
 
 const VALID_LANGUAGES = LANGUAGE_IDS as readonly string[];
 
-/**
- * Resolve graph: if layers.json exists and --target was not explicitly set,
- * use multi-layer analysis. Otherwise, use single-dir analysis.
- */
-async function resolveGraph(opts: {
+/** Check if --target was explicitly provided on the CLI */
+function isTargetExplicit(): boolean {
+  return process.argv.some((a) => a === "-t" || a === "--target");
+}
+
+/** CLI wrapper: resolveGraph with --target explicit check */
+async function resolveGraphCli(opts: {
   target: string;
   root: string;
   exclude?: string[];
   language?: LanguageId;
-}): Promise<{ graph: DependencyGraph; multiLayer?: MultiLayerGraph; layerMetadata?: LayerMetadata[]; crossLayerEdges?: CrossLayerConnection[] }> {
-  // Check if --target was explicitly provided (not the default "src")
-  const targetExplicit = process.argv.some((a) => a === "-t" || a === "--target");
-
-  if (!targetExplicit) {
-    const layerConfig = await loadLayerConfig(opts.root);
-    if (layerConfig) {
-      const multi = await analyzeMultiLayer(opts.root, layerConfig.layers);
-      // Merge manual connections from layers.json with auto-detected ones
-      const autoConnections = detectCrossLayerConnections(multi.layers, layerConfig.layers);
-      const manualConnections = layerConfig.connections ?? [];
-      // Manual connections take priority; deduplicate by fromLayer/fromFile→toLayer/toFile
-      const manualKeys = new Set(manualConnections.map(
-        (c) => `${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`,
-      ));
-      const merged = [
-        ...manualConnections,
-        ...autoConnections.filter(
-          (c) => !manualKeys.has(`${c.fromLayer}/${c.fromFile}→${c.toLayer}/${c.toFile}`),
-        ),
-      ];
-      return {
-        graph: multi.merged,
-        multiLayer: multi,
-        layerMetadata: multi.layerMetadata,
-        crossLayerEdges: merged,
-      };
-    }
-  }
-
-  const graph = await analyzeProject(opts.target, {
+}) {
+  return resolveGraph({
+    targetDir: opts.target,
+    projectRoot: opts.root,
+    useMultiLayer: !isTargetExplicit(),
     exclude: opts.exclude,
     language: opts.language,
   });
-  return { graph };
 }
 
 const program = new Command();
@@ -100,7 +73,7 @@ program
     try {
       const language = validateLanguage(opts.language);
       console.log(t("cli.analyzing"));
-      const { graph, multiLayer } = await resolveGraph({
+      const { graph, multiLayer } = await resolveGraphCli({
         target: opts.target,
         root: opts.root,
         exclude: opts.exclude,
@@ -157,7 +130,7 @@ program
     try {
       const language = validateLanguage(opts.language);
       console.log(t("cli.analyzing"));
-      const { graph, multiLayer } = await resolveGraph({
+      const { graph, multiLayer } = await resolveGraphCli({
         target: opts.target,
         root: opts.root,
         exclude: opts.exclude,
@@ -198,7 +171,7 @@ program
       }
 
       console.log(t("cli.analyzing"));
-      const { graph: currentGraph } = await resolveGraph({
+      const { graph: currentGraph } = await resolveGraphCli({
         target: opts.target,
         root: opts.root,
         language,
@@ -236,7 +209,7 @@ program
 
       if (!snapshot) {
         console.log(t("cli.autoGenerating"));
-        const result = await resolveGraph({
+        const result = await resolveGraphCli({
           target: opts.target,
           root: opts.root,
           language,
@@ -305,7 +278,7 @@ program
 
       // Use snapshot if available, otherwise analyze fresh
       let diff = null;
-      const result = await resolveGraph({
+      const result = await resolveGraphCli({
         target: opts.target,
         root: opts.root,
         exclude: opts.exclude,
@@ -335,7 +308,7 @@ program
           debounce = setTimeout(async () => {
             try {
               console.log(t("web.reloading"));
-              const newResult = await resolveGraph({
+              const newResult = await resolveGraphCli({
                 target: opts.target,
                 root: opts.root,
                 exclude: opts.exclude,
